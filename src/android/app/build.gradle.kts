@@ -159,8 +159,9 @@ tasks.named("preBuild") { dependsOn(copyBashismRules) }
 // APK, so the tooling docs can't ship to users. `assets` is also declared as an
 // output so Gradle re-runs this when the skill changes but skips it otherwise.
 val stageDebugSkillAssets by tasks.registering(Exec::class) {
-    val script = rootProject.file("../../scripts/gen_debug_skill_android.sh")
-    val skillDir = rootProject.file("../../.claude/skills/debug-server")
+    val repoRoot = rootProject.file("../..")
+    val script = repoRoot.resolve("scripts/gen_debug_skill_android.sh")
+    val skillDir = repoRoot.resolve(".claude/skills/debug-server")
     onlyIf { script.exists() }
     // Declare the inputs only when they exist. `.optional()` covers an unset
     // property, not a path that is absent: Gradle validates inputs before it
@@ -170,7 +171,8 @@ val stageDebugSkillAssets by tasks.registering(Exec::class) {
     if (skillDir.isDirectory) inputs.dir(skillDir)
     if (script.isFile) inputs.file(script)
     outputs.dir(layout.projectDirectory.dir("src/debug/assets/debug-skill"))
-    commandLine("bash", script.absolutePath)
+    workingDir(repoRoot)
+    commandLine("bash", "scripts/gen_debug_skill_android.sh")
 }
 tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") && it.name.contains("Debug") }
     .configureEach { dependsOn(stageDebugSkillAssets) }
