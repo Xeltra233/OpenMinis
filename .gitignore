@@ -150,5 +150,6 @@ src/android/app/provider-customization.properties
 # Local goal workspaces and screenshots
 goal-*/
 screen*.png
+dist/
 .mcp.json
 BUILTIN_SYSTEM_PROMPT.md
