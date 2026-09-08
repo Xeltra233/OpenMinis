@@ -40,6 +40,7 @@ object VoiceModality {
     private val asrInferencePatterns = listOf(
         "-asr", "asr-", "_asr", "asr_", "whisper", "transcrib", "speech-to-text",
         "speech2text", "stt-", "-stt", "_stt", "stt_", "voice-input", "voice_input",
+        "sensevoice",
     )
 
     /** Substrings marking a DEDICATED text-to-speech (TTS) model. Mirrors iOS
@@ -47,6 +48,7 @@ object VoiceModality {
     private val ttsInferencePatterns = listOf(
         "tts", "-tts", "_tts", "text-to-speech", "text2speech", "audio-gen",
         "audio-generation", "seed-tts", "voice-output", "voice_output",
+        "cosyvoice",
     )
 
     /**
@@ -75,11 +77,25 @@ private val LLMModel.normalizedOutputs: List<String>? get() = outputModalities.n
 
 /** True when this model consumes audio (ASR or audio-capable chat model). */
 val LLMModel.hasAudioInput: Boolean
-    get() = normalizedInputs?.contains("audio") == true
+    get() {
+        val ins = normalizedInputs
+        if (ins?.contains("audio") == true) return true
+        if (ins != null && !ins.contains("audio")) {
+            return ModelIdNormalizer.isAudioInputModel(id, displayName)
+        }
+        return ModelIdNormalizer.isAudioInputModel(id, displayName)
+    }
 
 /** True when this model produces audio (TTS or omni model). */
 val LLMModel.hasAudioOutput: Boolean
-    get() = normalizedOutputs?.contains("audio") == true
+    get() {
+        val outs = normalizedOutputs
+        if (outs?.contains("audio") == true) return true
+        if (outs != null && !outs.contains("audio")) {
+            return ModelIdNormalizer.isAudioOutputModel(id, displayName)
+        }
+        return ModelIdNormalizer.isAudioOutputModel(id, displayName)
+    }
 
 /**
  * True when this model natively consumes images (a vision-capable model).

@@ -2,6 +2,10 @@
 
 本文档记录本项目相较于上游 OpenMinis 官方原版仓库的所有二次开发修改与新增功能，供团队查阅以及未来合并上游新版本代码时作为依据与比对索引。
 
+### 版本命名规范 (`<upstream>-<fork>`)
+- **前缀跟随上游**：基础版本号完全跟随上游（如当前上游版本为 `1.13`）；
+- **后缀独立起算**：二开版本以后缀表示（如当前首发版本为 `1.13-1.0`）；
+- **上游更新重新起算**：每当合并上游新版本（如上游升级为 `1.14`），二开后缀统一**重新从 `-1.0` 起算**（即 `1.14-1.0`）；在同个上游版本下的持续修复与优化则递增后缀（如 `1.13-1.1`）。
 ---
 
 ## 1. 最大思考深度支持 ULTRA (Elevate Max Thinking Level to ULTRA)
@@ -158,3 +162,60 @@
      - 更新 Release 发布说明，自动囊括所有二次开发核心特性。
   3. `README.md` & `UpdateChecker.kt`
      - 移除 App Store 标识，将下载与应用内升级检查全面重定向至 `https://github.com/Xeltra233/OpenMinis/releases`。
+
+---
+
+## 10. Rootfs 资产解封与在线下载双保险兜底 (Alpine Rootfs Packaging & Fallback)
+- **背景与目标**：
+  在沙箱管理安装 Alpine Linux 时，由于原 `.gitignore` 排除了 `*.tar.gz`，导致 `alpine-minirootfs.tar.gz` 缺失引发 `FileNotFoundException`。此外若打包时遗漏资产，用户无任何自愈手段。
+- **修改文件列表**：
+  1. `.gitignore`：白名单放行 `!src/android/app/src/main/assets/alpine-minirootfs.tar.gz`。
+  2. `.github/workflows/build-apk.yml`：构建前自动核验并在缺失时自动下载 Alpine Minirootfs 3.21.3 aarch64 官方压缩包。
+  3. `src/android/app/src/main/java/com/openminis/app/sandbox/RootfsManager.kt`：增加清华源、阿里源、官方 CDN 在线自动下载兜底，并在下载过程中上报安装进度。
+  4. `src/android/app/src/main/java/com/openminis/app/ui/sandbox/RootfsManagementViewModel.kt`：支持 `RootfsInstallState.Downloading` 状态流及百分比展示。
+
+---
+
+## 11. 模型分组思考深度 UI 阶梯滑动条重构 (Thinking Intensity Slider)
+- **背景与目标**：
+  原版在模型分组详情中启用思考深度时，将 6 个档位（Min, Low, Medium, High, XHigh, Ultra）强行塞在单行 `SingleChoiceSegmentedButtonRow` 中，且套在第二层突兀的圆角卡片内，在绝大多数手机视口下出现严重换行、文字截断和 UI 撕裂。
+- **修改文件列表**：
+  1. `src/android/app/src/main/java/com/openminis/app/ui/settings/ModelGroupDetailScreen.kt`：
+     - 移除嵌套的突兀子卡片；
+     - 将 6 键分段按钮重构为与“上下文上限”设计规范一致的 `ThinkingIntensitySlider` 阶梯滑动条；
+     - 支持当前选中档位紫调高亮显示与平滑拖动吸附。
+
+---
+
+## 12. 系统提示词规范化与全局设置常驻入口 (System Prompt Refactor & Global Settings)
+- **背景与目标**：
+  1. 聊天菜单原图标误用了终端图标 `Icons.Default.Terminal`，与“打开终端”产生视觉混淆，标题带有冗余的 `(SYSTEM.md)` 尾缀；
+  2. 原弹窗内存在编造的虚拟提示词，违背软件真实动态构造；
+  3. 设置主界面缺失全局的“系统提示词”常驻管理入口。
+- **修改文件列表**：
+  1. `src/android/app/src/main/java/com/openminis/app/ui/chat/ChatScreen.kt`：
+     - 菜单图标换为专属齿轮图标 `Icons.Default.Settings`；
+     - 标题简化为纯净规范的“系统提示词”；
+  2. `src/android/app/src/main/java/com/openminis/app/ui/chat/SystemPromptSheet.kt`：
+     - 清除所有预设的人工编造假数据，默认留空自动走系统内置底层系统词；提供一键“填入内置提示词”与“清空”操作；
+  3. `src/android/app/src/main/java/com/openminis/app/ui/chat/ChatViewModel.kt`：
+     - 读写对齐 `/var/minis/memory/` 目录规范，同时支持 `APPEND.SYSTEM.md` 与 `APPEND_SYSTEM.md` 向后兼容；
+  4. `src/android/app/src/main/java/com/openminis/app/ui/settings/SettingsScreen.kt`：
+     - 在“Agent 运行时”分组中新增“系统提示词”常驻入口与持久化读写。
+
+---
+
+## 13. 全模态能力智能匹配增强 (Comprehensive Multimodal Modality Matching)
+- **背景与目标**：
+  中转接口（NewAPI / OneAPI 等）通常只下发基础模型 ID，不声明 `architecture.input_modalities`。原版仅对视觉模型增加 `"image"`，导致 Gemini、Qwen-Omni、Claude 等模型在运行时缺失音频、视频、PDF 支持，甚至在系统提示词中向模型误报“无法处理音频/视频/PDF”。
+- **权威证据检索与核查**：
+  通过官方开发者文档与技术报告验证了各模型输入/输出模态特性（Google Gemini 2.5/3.x 原生支持文本、图像、音频、视频、PDF；Anthropic Claude 原生支持文本、图像、PDF；Qwen3-Omni 原生支持文本、图像、音频、视频并支持流式语音输出；Wan2.2 视频生成；Kolors/Z-Image 图像生成；CosyVoice2/SenseVoice 专属语音）。
+- **修改文件列表**：
+  1. `src/android/app/src/main/java/com/openminis/app/data/model/ModelIdNormalizer.kt` & `src/ios/Providers/ModelIdNormalizer.swift`：
+     - 新增 `isAudioInputModel`、`isVideoInputModel`、`isPdfInputModel`、`isImageOutputModel`、`isAudioOutputModel`、`isVideoOutputModel` 智能匹配；
+  2. `src/android/app/src/main/java/com/openminis/app/data/model/VoiceModality.kt`：
+     - 扩充 ASR/TTS 专用语音模型识别规则（包含 SenseVoice、CosyVoice 等），智能兜底 `hasAudioInput` 与 `hasAudioOutput`；
+  3. `src/android/app/src/main/java/com/openminis/app/provider/ModelsDevApi.kt`：
+     - 在 `applyDevData` 中，根据全模态规则全面补齐 `image`、`audio`、`video`、`pdf` 输入模态及对应生成输出模态。
+  4. `src/android/app/src/test/java/com/openminis/app/data/ModelIdNormalizerTest.kt`：
+     - 补充针对 Gemini、Claude、Qwen-Omni、Wan2.2、CosyVoice 的全模态断言测试并全部通过。

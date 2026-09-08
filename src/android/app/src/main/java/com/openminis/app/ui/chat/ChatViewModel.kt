@@ -995,18 +995,31 @@ class ChatViewModel(
 
     fun loadSystemPromptFiles(): Pair<String, String> {
         val repo = memoryRepository
-        val defaultSys = defaultBaseSystemPrompt()
-        val sys = repo?.readFile("SYSTEM.md")?.takeIf { it.isNotBlank() } ?: defaultSys
-        val app = repo?.readFile("APPEND_SYSTEM.md") ?: ""
+        val sys = repo?.readFile("SYSTEM.md") ?: ""
+        val app = repo?.readFile("APPEND.SYSTEM.md")?.takeIf { it.isNotBlank() }
+            ?: repo?.readFile("APPEND_SYSTEM.md")
+            ?: ""
         return sys to app
     }
 
     fun saveSystemPromptFiles(systemMd: String, appendMd: String) {
         val repo = memoryRepository ?: return
-        repo.saveFile("SYSTEM.md", systemMd)
-        repo.saveFile("APPEND_SYSTEM.md", appendMd)
-        _customSystemPrompt.value = systemMd
-        _appendSystemPrompt.value = appendMd
+        if (systemMd.isBlank()) {
+            repo.deleteFile("SYSTEM.md")
+            _customSystemPrompt.value = null
+        } else {
+            repo.saveFile("SYSTEM.md", systemMd)
+            _customSystemPrompt.value = systemMd
+        }
+        if (appendMd.isBlank()) {
+            repo.deleteFile("APPEND.SYSTEM.md")
+            repo.deleteFile("APPEND_SYSTEM.md")
+            _appendSystemPrompt.value = null
+        } else {
+            repo.saveFile("APPEND.SYSTEM.md", appendMd)
+            repo.saveFile("APPEND_SYSTEM.md", appendMd)
+            _appendSystemPrompt.value = appendMd
+        }
     }
 
     fun defaultBaseSystemPrompt(): String {
@@ -10703,9 +10716,11 @@ Scheduled tasks: crontab / at / nohup loops will stop when the app is suspended,
             append("- Current date: ").append(dateStr).append(" (").append(tzId).append(")\n")
             append("- Device language: ").append(lang).append("\n")
             append("- minis-model-use models available: ").append(modelUseCount)
-            val appendPrompt = _appendSystemPrompt.value?.trim() ?: repo?.readFile("APPEND_SYSTEM.md")?.trim().takeIf { !it.isNullOrEmpty() }
+            val appendPrompt = _appendSystemPrompt.value?.trim()
+                ?: repo?.readFile("APPEND.SYSTEM.md")?.trim().takeIf { !it.isNullOrEmpty() }
+                ?: repo?.readFile("APPEND_SYSTEM.md")?.trim().takeIf { !it.isNullOrEmpty() }
             if (!appendPrompt.isNullOrEmpty()) {
-                append("\n\nAdditional Instructions (from APPEND_SYSTEM.md):\n")
+                append("\n\nAdditional Instructions (from APPEND.SYSTEM.md):\n")
                 append(appendPrompt)
             }
         }

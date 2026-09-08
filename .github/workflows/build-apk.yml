@@ -59,7 +59,7 @@ jobs:
           # 2. Extract versionName from build.gradle.kts
           GRADLE_VERSION=$(grep -E '^\s*versionName\s*=\s*' src/android/app/build.gradle.kts | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/' | tr -d '[:space:]')
           if [ -z "$GRADLE_VERSION" ]; then
-            GRADLE_VERSION="1.13"
+            GRADLE_VERSION="1.13-1.0"
           fi
           
           if [ -n "$CUSTOM_TAG" ]; then
@@ -94,6 +94,16 @@ jobs:
             exit 1
           fi
           echo "Found rclone.aar: $(ls -lh src/android/app/libs/rclone.aar)"
+
+      - name: Verify and ensure Alpine rootfs asset
+        run: |
+          ROOTFS_PATH="src/android/app/src/main/assets/alpine-minirootfs.tar.gz"
+          if [ ! -f "$ROOTFS_PATH" ]; then
+            echo "alpine-minirootfs.tar.gz not found, downloading..."
+            mkdir -p "src/android/app/src/main/assets"
+            curl -fSL -o "$ROOTFS_PATH" "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/aarch64/alpine-minirootfs-3.21.3-aarch64.tar.gz"
+          fi
+          echo "Found Alpine rootfs: $(ls -lh $ROOTFS_PATH)"
       - name: Build Android APK (Release & Debug)
         run: |
           cd src/android
@@ -132,10 +142,13 @@ jobs:
             
             ### Included Features:
             - **Max Thinking Depth ULTRA**: Support reasoning depth up to ULTRA across providers.
+            - **Thinking Intensity Slider**: Smooth step slider UI in model group settings replacing cramped 6-button segmented row.
+            - **Alpine Linux Rootfs Self-Healing**: Bundled rootfs asset and runtime multi-mirror online download fallback (Tsinghua/Aliyun/CDN).
             - **Channel Affix Stripping & Multimodal Detection**: Automatically recognize core model IDs (e.g. `[Antigravity渠道] gemini-3.8-flash-high`, `[Antigravity渠道] gemini-pro-agent`) to enable vision/image input and deep thinking.
+            - **Evidence-Based Multimodal Expansion**: Full modality mapping for Gemini, Claude, Qwen-Omni, Qwen-VL, audio/video/pdf inputs and outputs.
             - **AI Task Management**: AI Agent tools (`todo`, `task`, `goal`) for autonomous task and goal tracking with session file persistence.
             - **Collapsible Task UI**: Compact, non-intrusive collapsible Todo/Task card on mobile screens.
-            - **Agent Runtime System Prompt Editor**: Edit `SYSTEM.md` and `APPEND_SYSTEM.md` directly from chat settings.
+            - **System Prompt Management**: Cleaned default system prompts, support for `SYSTEM.md` & `APPEND.SYSTEM.md`, and permanent entry in main Settings.
             - **SSH Server Management**: Manage remote SSH hosts with credentials and provide `ssh_servers` AI tool for autonomous server lookups.
             - **UI Sheets & Complete Chinese Localization**: Fixes for sheets presentation and full Chinese localization.
             

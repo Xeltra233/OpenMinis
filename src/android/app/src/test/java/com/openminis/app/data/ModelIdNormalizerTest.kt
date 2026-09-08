@@ -51,4 +51,34 @@ class ModelIdNormalizerTest {
         assertTrue(ModelIdNormalizer.isReasoningModel("o3-mini-2025-01-31"))
         assertTrue(ModelIdNormalizer.isReasoningModel("claude-3-7-sonnet"))
     }
+
+    @Test
+    fun multimodalCapabilities_matchVerifiedEvidence() {
+        // Gemini handles audio, video, PDF natively
+        assertTrue(ModelIdNormalizer.isAudioInputModel("[Antigravity渠道] gemini-3.8-flash-high"))
+        assertTrue(ModelIdNormalizer.isVideoInputModel("[Antigravity渠道] gemini-3.8-flash-high"))
+        assertTrue(ModelIdNormalizer.isPdfInputModel("[Antigravity渠道] gemini-3.8-flash-high"))
+
+        // Claude handles PDFs and images natively, but not raw audio or video
+        assertTrue(ModelIdNormalizer.isPdfInputModel("claude-3-7-sonnet"))
+        assertFalse(ModelIdNormalizer.isAudioInputModel("claude-3-7-sonnet"))
+        assertFalse(ModelIdNormalizer.isVideoInputModel("claude-3-7-sonnet"))
+
+        // Qwen-Omni handles audio and video in, speech out
+        assertTrue(ModelIdNormalizer.isAudioInputModel("Qwen/Qwen3-Omni-30B-A3B-Instruct"))
+        assertTrue(ModelIdNormalizer.isVideoInputModel("Qwen/Qwen3-Omni-30B-A3B-Instruct"))
+        assertTrue(ModelIdNormalizer.isAudioOutputModel("Qwen/Qwen3-Omni-30B-A3B-Instruct"))
+
+        // Image output generation
+        assertTrue(ModelIdNormalizer.isImageOutputModel("gemini-3.1-flash-image"))
+        assertTrue(ModelIdNormalizer.isImageOutputModel("Kwai-Kolors/Kolors"))
+        assertTrue(ModelIdNormalizer.isImageOutputModel("Tongyi-MAI/Z-Image-Turbo"))
+
+        // Video output generation
+        assertTrue(ModelIdNormalizer.isVideoOutputModel("Wan-AI/Wan2.2-T2V-A14B"))
+
+        // Dedicated ASR and TTS
+        assertTrue(ModelIdNormalizer.isAudioInputModel("FunAudioLLM/SenseVoiceSmall"))
+        assertTrue(ModelIdNormalizer.isAudioOutputModel("FunAudioLLM/CosyVoice2-0.5B"))
+    }
 }

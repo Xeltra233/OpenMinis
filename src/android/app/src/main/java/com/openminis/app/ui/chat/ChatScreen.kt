@@ -131,6 +131,7 @@ import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.RadioButtonChecked
@@ -2973,15 +2974,15 @@ fun ChatScreen(
                                     },
                                 )
                             }
-                            // System Prompt & Append Prompt Sheet (SYSTEM.md / APPEND_SYSTEM.md)
+                            // System Prompt & Append Prompt Sheet
                             DropdownMenuItem(
-                                text = { Text("系统提示词 (SYSTEM.md)") },
+                                text = { Text("系统提示词") },
                                 onClick = {
                                     showChatMenu = false
                                     showSystemPromptSheet = true
                                 },
                                 leadingIcon = {
-                                    Icon(Icons.Default.Terminal, contentDescription = null)
+                                    Icon(Icons.Default.Settings, contentDescription = null)
                                 },
                             )
                             // Session Memory (iOS parity)
@@ -6868,7 +6869,7 @@ fun ChatScreen(
             defaultPrompt = viewModel.defaultBaseSystemPrompt(),
             onSave = { systemMd, appendMd ->
                 viewModel.saveSystemPromptFiles(systemMd, appendMd)
-                android.widget.Toast.makeText(context, "已保存 SYSTEM.md 与 APPEND_SYSTEM.md", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(context, "系统提示词已保存", android.widget.Toast.LENGTH_SHORT).show()
                 showSystemPromptSheet = false
             },
             onDismiss = { showSystemPromptSheet = false },

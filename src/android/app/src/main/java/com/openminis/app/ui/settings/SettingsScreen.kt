@@ -67,7 +67,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.stringResource
 import com.openminis.app.BuildConfig
+import com.openminis.app.MinisApp
 import com.openminis.app.R
+import com.openminis.app.agent.SystemPromptBuilder
+import com.openminis.app.ui.chat.SystemPromptSheet
 import com.openminis.app.ui.components.openExternalUrl
 import com.openminis.app.i18n.uppercaseForDisplay
 
@@ -112,6 +115,7 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     var showFeedbackSheet by remember { mutableStateOf(false) }
+    var showSystemPromptSheet by remember { mutableStateOf(false) }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -215,6 +219,13 @@ fun SettingsScreen(
                     title = stringResource(R.string.settings_env_vars),
                     subtitle = stringResource(R.string.settings_env_vars_subtitle),
                     onClick = onEnvVarsClick,
+                )
+                SettingsItem(
+                    icon = Icons.Outlined.Description,
+                    iconColor = Color(0xFFFF2D55),
+                    title = "系统提示词",
+                    subtitle = "查看与自定义 SYSTEM.md 及追加提示词",
+                    onClick = { showSystemPromptSheet = true },
                     showDivider = false,
                 )
             }
@@ -332,6 +343,50 @@ fun SettingsScreen(
 
             Spacer(Modifier.height(24.dp))
         }
+    }
+
+    if (showSystemPromptSheet) {
+        val memoryRepo = (context.applicationContext as? MinisApp)?.memoryRepository
+        val currentSys = remember(showSystemPromptSheet) {
+            memoryRepo?.readFile("SYSTEM.md") ?: ""
+        }
+        val currentApp = remember(showSystemPromptSheet) {
+            memoryRepo?.readFile("APPEND.SYSTEM.md")?.takeIf { it.isNotBlank() }
+                ?: memoryRepo?.readFile("APPEND_SYSTEM.md")
+                ?: ""
+        }
+        val defaultPrompt = remember {
+            SystemPromptBuilder.identitySection(context) +
+                """You should proactively use shell commands to accomplish the user's tasks — installing packages (apk add), writing and running scripts, managing files, networking, and any other operations a Linux terminal can perform.
+
+Available tools:
+- shell_execute: Run any shell command. Each invocation is an isolated process with stdout/stderr captured.
+- file_read: Read file contents (faster than cat).
+- file_write: Create new files or overwrite existing files (faster than echo/tee).
+"""
+        }
+        SystemPromptSheet(
+            systemMdContent = currentSys,
+            appendSystemMdContent = currentApp,
+            defaultPrompt = defaultPrompt,
+            onSave = { systemMd, appendMd ->
+                if (systemMd.isBlank()) {
+                    memoryRepo?.deleteFile("SYSTEM.md")
+                } else {
+                    memoryRepo?.saveFile("SYSTEM.md", systemMd)
+                }
+                if (appendMd.isBlank()) {
+                    memoryRepo?.deleteFile("APPEND.SYSTEM.md")
+                    memoryRepo?.deleteFile("APPEND_SYSTEM.md")
+                } else {
+                    memoryRepo?.saveFile("APPEND.SYSTEM.md", appendMd)
+                    memoryRepo?.saveFile("APPEND_SYSTEM.md", appendMd)
+                }
+                android.widget.Toast.makeText(context, "系统提示词已保存", android.widget.Toast.LENGTH_SHORT).show()
+                showSystemPromptSheet = false
+            },
+            onDismiss = { showSystemPromptSheet = false },
+        )
     }
 
     if (showFeedbackSheet) {

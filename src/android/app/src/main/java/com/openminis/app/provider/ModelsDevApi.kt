@@ -166,14 +166,31 @@ object ModelsDevApi {
         val cleanId = ModelIdNormalizer.stripChannelAffixes(model.id)
         val isVision = ModelIdNormalizer.isVisionModel(cleanId, model.displayName)
         val isReasoning = ModelIdNormalizer.isReasoningModel(cleanId, model.displayName)
+        val isAudioIn = ModelIdNormalizer.isAudioInputModel(cleanId, model.displayName)
+        val isVideoIn = ModelIdNormalizer.isVideoInputModel(cleanId, model.displayName)
+        val isPdfIn = ModelIdNormalizer.isPdfInputModel(cleanId, model.displayName)
+
+        val isImageOut = ModelIdNormalizer.isImageOutputModel(cleanId, model.displayName)
+        val isAudioOut = ModelIdNormalizer.isAudioOutputModel(cleanId, model.displayName)
+        val isVideoOut = ModelIdNormalizer.isVideoOutputModel(cleanId, model.displayName)
 
         val baseInputs = devModel?.inputModalities ?: model.inputModalities
-        val enrichedInputs = if (isVision) {
+        val enrichedInputs = run {
             val list = (baseInputs ?: listOf("text")).toMutableList()
-            if (!list.contains("image")) list.add("image")
+            if (isVision && !list.contains("image")) list.add("image")
+            if (isAudioIn && !list.contains("audio")) list.add("audio")
+            if (isVideoIn && !list.contains("video")) list.add("video")
+            if (isPdfIn && !list.contains("pdf")) list.add("pdf")
             list
-        } else {
-            baseInputs
+        }
+
+        val baseOutputs = devModel?.outputModalities ?: model.outputModalities
+        val enrichedOutputs = run {
+            val list = (baseOutputs ?: listOf("text")).toMutableList()
+            if (isImageOut && !list.contains("image")) list.add("image")
+            if (isAudioOut && !list.contains("audio")) list.add("audio")
+            if (isVideoOut && !list.contains("video")) list.add("video")
+            list
         }
 
         val enrichedReasoning = devModel?.reasoning ?: model.supportsReasoning ?: if (isReasoning) true else null
@@ -185,7 +202,7 @@ object ModelsDevApi {
             supportsReasoning = enrichedReasoning,
             interleavedReasoningField = devModel?.interleavedField ?: model.interleavedReasoningField,
             inputModalities = enrichedInputs,
-            outputModalities = devModel?.outputModalities ?: model.outputModalities,
+            outputModalities = enrichedOutputs,
             reasoningEffortValues = devModel?.reasoningEffortValues ?: model.reasoningEffortValues,
             declaresNoEffortTiers = if (devModel?.declaresNoEffortTiers == true) true else model.declaresNoEffortTiers,
         )

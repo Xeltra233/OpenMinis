@@ -75,6 +75,129 @@ object ModelIdNormalizer {
         if (combined.contains("vision") || combined.contains("multimodal")) return true
         if (combined.contains("-vl") || combined.contains("_vl") || combined.contains("vl-") || combined.contains("vl_")) return true
         if (combined.contains("llava") || combined.contains("internvl") || combined.contains("minicpm-v")) return true
+        if (combined.contains("qwen") && (combined.contains("vl") || combined.contains("omni"))) return true
+        if (combined.contains("ocr") || combined.contains("fuyu") || combined.contains("neva") || combined.contains("vila")) return true
+
+        return false
+    }
+
+    /**
+     * Determines whether this model natively supports audio input (ASR or speech/omni model).
+     */
+    fun isAudioInputModel(modelId: String, displayName: String? = null): Boolean {
+        val stripped = stripChannelAffixes(modelId).lowercase()
+        val combined = "$stripped ${displayName?.lowercase().orEmpty()}"
+
+        val disqualifiers = listOf("-tts", "tts-", "_tts", "text-to-speech", "-embedding", "image-only")
+        if (disqualifiers.any { combined.contains(it) }) return false
+
+        // Dedicated ASR
+        val asrPatterns = listOf("asr", "whisper", "transcrib", "speech-to-text", "speech2text", "stt", "sensevoice")
+        if (asrPatterns.any { combined.contains(it) }) return true
+
+        // Gemini: all modern Gemini models natively accept audio inputs (except pure image generation)
+        if (combined.contains("gemini") && !combined.contains("image") && !combined.contains("imagen")) return true
+
+        // Omni models (Qwen-Omni, GPT-4o, Nemotron-Omni)
+        if (combined.contains("omni")) return true
+        if (combined.contains("gpt-4o") || combined.contains("chatgpt-4o")) return true
+
+        return false
+    }
+
+    /**
+     * Determines whether this model natively supports video input.
+     */
+    fun isVideoInputModel(modelId: String, displayName: String? = null): Boolean {
+        val stripped = stripChannelAffixes(modelId).lowercase()
+        val combined = "$stripped ${displayName?.lowercase().orEmpty()}"
+
+        val disqualifiers = listOf("-tts", "tts-", "_tts", "-embedding", "image-only")
+        if (disqualifiers.any { combined.contains(it) }) return false
+
+        // Gemini: all modern Gemini models natively accept video inputs
+        if (combined.contains("gemini") && !combined.contains("image") && !combined.contains("imagen")) return true
+
+        // Qwen-VL & Qwen-Omni support native video frames
+        if (combined.contains("qwen") && (combined.contains("vl") || combined.contains("omni"))) return true
+
+        // Dedicated video understanding
+        if (combined.contains("video-llm") || combined.contains("videollama") || combined.contains("video-chat")) return true
+
+        return false
+    }
+
+    /**
+     * Determines whether this model natively supports PDF document input.
+     */
+    fun isPdfInputModel(modelId: String, displayName: String? = null): Boolean {
+        val stripped = stripChannelAffixes(modelId).lowercase()
+        val combined = "$stripped ${displayName?.lowercase().orEmpty()}"
+
+        val disqualifiers = listOf("-tts", "tts-", "_tts", "-embedding")
+        if (disqualifiers.any { combined.contains(it) }) return false
+
+        // Gemini: full PDF parsing and document understanding
+        if (combined.contains("gemini")) return true
+
+        // Claude: multi-page PDF processing with visual tables/charts
+        if (combined.contains("claude") || combined.contains("sonnet") || combined.contains("opus")) return true
+
+        // OpenAI: GPT-4o, GPT-5, o1, o3, o4
+        if (combined.contains("gpt-4o") || combined.contains("gpt-5")) return true
+        if (Regex("""\b(o1|o3|o4)(-[a-z0-9]+)?\b""").containsMatchIn(combined)) return true
+
+        // Qwen-VL, OCR models
+        if (combined.contains("qwen") && combined.contains("vl")) return true
+        if (combined.contains("ocr") || combined.contains("document")) return true
+
+        return false
+    }
+
+    /**
+     * Determines whether this model outputs generated images.
+     */
+    fun isImageOutputModel(modelId: String, displayName: String? = null): Boolean {
+        val stripped = stripChannelAffixes(modelId).lowercase()
+        val combined = "$stripped ${displayName?.lowercase().orEmpty()}"
+
+        if (combined.contains("gemini") && combined.contains("image")) return true
+        if (combined.contains("nano banana")) return true
+        if (combined.contains("dall-e") || combined.contains("gpt-image")) return true
+        if (combined.contains("flux") || combined.contains("midjourney") || combined.contains("stable-diffusion") || combined.contains("sdxl")) return true
+        if (combined.contains("kolors") || combined.contains("qwen-image") || combined.contains("z-image") || combined.contains("ernie-image")) return true
+        if (combined.contains("bailu-image")) return true
+        if (combined.contains("image-gen") || combined.contains("text2image") || combined.contains("t2i")) return true
+
+        return false
+    }
+
+    /**
+     * Determines whether this model outputs generated audio (TTS / speech generation).
+     */
+    fun isAudioOutputModel(modelId: String, displayName: String? = null): Boolean {
+        val stripped = stripChannelAffixes(modelId).lowercase()
+        val combined = "$stripped ${displayName?.lowercase().orEmpty()}"
+
+        if (combined.contains("tts") || combined.contains("cosyvoice") || combined.contains("seed-tts")) return true
+        if (combined.contains("text-to-speech") || combined.contains("text2speech") || combined.contains("audio-gen")) return true
+        if (combined.contains("moss-ttsd") || combined.contains("voice-output")) return true
+        if (combined.contains("omni")) return true
+
+        return false
+    }
+
+    /**
+     * Determines whether this model outputs generated video.
+     */
+    fun isVideoOutputModel(modelId: String, displayName: String? = null): Boolean {
+        val stripped = stripChannelAffixes(modelId).lowercase()
+        val combined = "$stripped ${displayName?.lowercase().orEmpty()}"
+
+        if (combined.contains("wan-ai") || combined.contains("wan2") || combined.contains("wan-2")) return true
+        if (combined.contains("sora") || combined.contains("kling") || combined.contains("runway") || combined.contains("gen-2") || combined.contains("gen-3")) return true
+        if (combined.contains("luma") || combined.contains("pika") || combined.contains("t2v") || combined.contains("i2v") || combined.contains("bailu-video")) return true
+        if (combined.contains("cogvideox")) return true
 
         return false
     }

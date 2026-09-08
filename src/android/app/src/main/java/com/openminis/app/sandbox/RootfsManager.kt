@@ -26,6 +26,7 @@ import java.util.zip.GZIPInputStream
 sealed class RootfsInstallState {
     object Idle : RootfsInstallState()
     object Preparing : RootfsInstallState()
+    data class Downloading(val progress: Float) : RootfsInstallState()
     /** progress in 0f..1f, based on compressed asset bytes consumed. */
     data class Extracting(val progress: Float) : RootfsInstallState()
     object Finalizing : RootfsInstallState()
@@ -82,38 +83,63 @@ class RootfsManager private constructor(private val context: Context) {
             }
             rootfsDir.mkdirs()
 
-            // Extract rootfs from assets.
-            // AAPT may decompress .tar.gz → .tar automatically, so try both names.
+            // Extract rootfs from assets, or fallback to online download if absent.
             val assetName = try {
                 context.assets.open(ROOTFS_ASSET).close()
                 ROOTFS_ASSET
             } catch (_: java.io.FileNotFoundException) {
-                ROOTFS_ASSET_TAR
+                try {
+                    context.assets.open(ROOTFS_ASSET_TAR).close()
+                    ROOTFS_ASSET_TAR
+                } catch (_: java.io.FileNotFoundException) {
+                    null
+                }
             }
 
-            // Asset size for progress calculation — compressed length (for .gz)
-            // or uncompressed length (for .tar). openFd() fails for 0-length
-            // assets on some devices; fall back to 0 which disables progress.
-            val assetTotal: Long = try {
-                context.assets.openFd(assetName).use { it.length }
-            } catch (_: Exception) { 0L }
+            if (assetName != null) {
+                // Asset size for progress calculation — compressed length (for .gz)
+                // or uncompressed length (for .tar). openFd() fails for 0-length
+                // assets on some devices; fall back to 0 which disables progress.
+                val assetTotal: Long = try {
+                    context.assets.openFd(assetName).use { it.length }
+                } catch (_: Exception) { 0L }
 
-            // Emit an initial 0% so the UI flips from Preparing → progress bar.
-            _installState.value = RootfsInstallState.Extracting(0f)
+                // Emit an initial 0% so the UI flips from Preparing → progress bar.
+                _installState.value = RootfsInstallState.Extracting(0f)
 
-            context.assets.open(assetName).use { rawAsset ->
-                // Wrap the ASSET stream (not the gzip stream) so progress tracks
-                // compressed bytes consumed — monotonic and matches the size we
-                // have a total for. Throttle updates to avoid flooding the StateFlow.
-                val progressStream = ProgressInputStream(rawAsset, assetTotal) { fraction ->
-                    _installState.value = RootfsInstallState.Extracting(fraction)
-                }
-                if (assetName.endsWith(".gz")) {
-                    GZIPInputStream(progressStream).use { gzipStream ->
-                        extractTar(gzipStream, rootfsDir)
+                context.assets.open(assetName).use { rawAsset ->
+                    // Wrap the ASSET stream (not the gzip stream) so progress tracks
+                    // compressed bytes consumed — monotonic and matches the size we
+                    // have a total for. Throttle updates to avoid flooding the StateFlow.
+                    val progressStream = ProgressInputStream(rawAsset, assetTotal) { fraction ->
+                        _installState.value = RootfsInstallState.Extracting(fraction)
                     }
-                } else {
-                    extractTar(progressStream, rootfsDir)
+                    if (assetName.endsWith(".gz")) {
+                        GZIPInputStream(progressStream).use { gzipStream ->
+                            extractTar(gzipStream, rootfsDir)
+                        }
+                    } else {
+                        extractTar(progressStream, rootfsDir)
+                    }
+                }
+            } else {
+                Log.i(TAG, "Rootfs asset not found in APK, downloading online...")
+                _installState.value = RootfsInstallState.Downloading(0f)
+                val tempArchive = File(context.cacheDir, "alpine-minirootfs-download.tar.gz")
+                try {
+                    downloadRootfsArchive(tempArchive)
+                    val archiveTotal = tempArchive.length()
+                    _installState.value = RootfsInstallState.Extracting(0f)
+                    tempArchive.inputStream().use { fileInput ->
+                        val progressStream = ProgressInputStream(fileInput, archiveTotal) { fraction ->
+                            _installState.value = RootfsInstallState.Extracting(fraction)
+                        }
+                        GZIPInputStream(progressStream).use { gzipStream ->
+                            extractTar(gzipStream, rootfsDir)
+                        }
+                    }
+                } finally {
+                    if (tempArchive.exists()) tempArchive.delete()
                 }
             }
 
@@ -158,6 +184,51 @@ class RootfsManager private constructor(private val context: Context) {
 
     /** Directory containing extracted native libraries (read-only, executable). */
     val nativeLibDir: File = File(context.applicationInfo.nativeLibraryDir)
+
+    private suspend fun downloadRootfsArchive(targetFile: File) = withContext(Dispatchers.IO) {
+        var lastError: Exception? = null
+        for (urlStr in ROOTFS_DOWNLOAD_MIRRORS) {
+            try {
+                Log.i(TAG, "Attempting rootfs download from $urlStr")
+                val url = java.net.URL(urlStr)
+                val conn = (url.openConnection() as java.net.HttpURLConnection).apply {
+                    connectTimeout = 15000
+                    readTimeout = 60000
+                    setRequestProperty("User-Agent", "OpenMinis-Android")
+                }
+                conn.connect()
+                val code = conn.responseCode
+                if (code in 200..299) {
+                    val totalBytes = conn.contentLengthLong.takeIf { it > 0 } ?: 3_850_365L
+                    conn.inputStream.use { input ->
+                        targetFile.outputStream().use { output ->
+                            val buffer = ByteArray(8192)
+                            var bytesRead: Int
+                            var downloaded = 0L
+                            var lastReported = 0f
+                            while (input.read(buffer).also { bytesRead = it } != -1) {
+                                output.write(buffer, 0, bytesRead)
+                                downloaded += bytesRead
+                                val fraction = (downloaded.toFloat() / totalBytes).coerceIn(0f, 1f)
+                                if (fraction - lastReported >= 0.02f || fraction >= 1f) {
+                                    lastReported = fraction
+                                    _installState.value = RootfsInstallState.Downloading(fraction)
+                                }
+                            }
+                        }
+                    }
+                    Log.i(TAG, "Successfully downloaded rootfs (${targetFile.length()} bytes)")
+                    return@withContext
+                } else {
+                    conn.disconnect()
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed downloading from $urlStr: ${e.message}")
+                lastError = e
+            }
+        }
+        throw IllegalStateException("All rootfs download mirrors failed. Last error: ${lastError?.message}", lastError)
+    }
 
     /**
      * Verify PRoot binary is available in the native library directory.
@@ -631,6 +702,11 @@ class RootfsManager private constructor(private val context: Context) {
         private const val ROOTFS_ASSET_TAR = "alpine-minirootfs.tar"
         private const val PROOT_ASSET = "proot-aarch64"
         private const val DEFAULT_MOUNT_ASSET = "default_mount"
+        private val ROOTFS_DOWNLOAD_MIRRORS = listOf(
+            "https://mirrors.tuna.tsinghua.edu.cn/alpine/v3.21/releases/aarch64/alpine-minirootfs-3.21.3-aarch64.tar.gz",
+            "https://mirrors.aliyun.com/alpine/v3.21/releases/aarch64/alpine-minirootfs-3.21.3-aarch64.tar.gz",
+            "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/aarch64/alpine-minirootfs-3.21.3-aarch64.tar.gz"
+        )
 
         /**
          * Rootfs paths whose contents must be executable. Matches iOS

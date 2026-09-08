@@ -49,6 +49,11 @@ class RootfsManagementViewModel : ViewModel() {
                             statusMessage = "Preparing rootfs…",
                             installProgress = 0f,
                         )
+                    is RootfsInstallState.Downloading ->
+                        _uiState.value = _uiState.value.copy(
+                            statusMessage = "Downloading rootfs… ${(state.progress * 100).toInt()}%",
+                            installProgress = state.progress,
+                        )
                     is RootfsInstallState.Extracting ->
                         _uiState.value = _uiState.value.copy(
                             statusMessage = "Extracting rootfs… ${(state.progress * 100).toInt()}%",
