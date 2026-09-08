@@ -568,8 +568,6 @@ object ThinkingRuleResolver {
         val is25Pro = lowerId.contains("gemini-2.5-pro") || rawLowerId.contains("gemini-2.5-pro")
         val is25Flash = (lowerId.contains("gemini-2.5-flash") || rawLowerId.contains("gemini-2.5-flash")) && !lowerId.contains("lite")
         val is25FlashLite = lowerId.contains("gemini-2.5-flash-lite") || rawLowerId.contains("gemini-2.5-flash-lite")
-        val isGenericPro = (lowerId.contains("gemini") || rawLowerId.contains("gemini")) && (lowerId.contains("pro") || lowerId.contains("agent"))
-        val isGenericFlash = (lowerId.contains("gemini") || rawLowerId.contains("gemini")) && lowerId.contains("flash")
 
         if (is25FlashLite) return null
 
@@ -602,7 +600,7 @@ object ThinkingRuleResolver {
                     put("includeThoughts", true)
                 }
             }
-            is25Pro || isGenericPro -> JSONObject().apply {
+            is25Pro -> JSONObject().apply {
                 put(
                     "thinkingBudget",
                     when (level) {
@@ -615,7 +613,7 @@ object ThinkingRuleResolver {
                 )
                 if (level.isEnabled) put("includeThoughts", true)
             }
-            is25Flash || isGenericFlash -> JSONObject().apply {
+            is25Flash -> JSONObject().apply {
                 put(
                     "thinkingBudget",
                     when (level) {

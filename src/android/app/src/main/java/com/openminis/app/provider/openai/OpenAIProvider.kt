@@ -606,7 +606,7 @@ class OpenAIProvider private constructor(
         // minis-model-use (ModelUseOffloadHandler) — get them on
         // LLMResponse.mediaAttachments and can write the image to --output.
         val media = mutableListOf<LLMMediaAttachment>()
-        streamMessage(
+        rawStreamMessage(
             messages = messages,
             systemPrompt = systemPrompt,
             maxTokens = maxTokens,
@@ -614,6 +614,7 @@ class OpenAIProvider private constructor(
             imageParts = imageParts,
             tools = tools,
             thinkingLevel = thinkingLevel,
+            stream = false,
         ).collect { chunk ->
             when (chunk) {
                 is LLMStreamChunk.Text -> textBuf.append(chunk.text)
@@ -646,6 +647,7 @@ class OpenAIProvider private constructor(
         imageParts: List<LLMMessage.ImagePart>,
         tools: List<AgentToolDefinition>,
         thinkingLevel: ThinkingLevel,
+        stream: Boolean = true,
     ): Flow<LLMStreamChunk> = callbackFlow {
         val body = if (isCodexImageModel) {
             // [T-gpt-image2-codex-backend-route-android] gpt-image-2 on an
@@ -672,9 +674,9 @@ class OpenAIProvider private constructor(
             )
             buildCodexImageBody(messages)
         } else if (usesChatCompletionsAPI) {
-            buildRequestBody(messages, systemPrompt, maxTokens, stream = true, temperature = temperature, imageParts = imageParts, tools = tools, thinkingLevel = thinkingLevel)
+            buildRequestBody(messages, systemPrompt, maxTokens, stream = stream, temperature = temperature, imageParts = imageParts, tools = tools, thinkingLevel = thinkingLevel)
         } else {
-            buildResponsesAPIBody(messages, systemPrompt, maxTokens, stream = true, imageParts = imageParts, tools = tools, thinkingLevel = thinkingLevel)
+            buildResponsesAPIBody(messages, systemPrompt, maxTokens, stream = stream, imageParts = imageParts, tools = tools, thinkingLevel = thinkingLevel)
         }
         // T302: serialize the request body exactly once. Pre-T302 we called
         // body.toString() three times per request (debug log + OAuth byte
@@ -945,18 +947,46 @@ class OpenAIProvider private constructor(
             // Branch streaming parser based on API format
             val isResponsesAPI = !usesChatCompletionsAPI
 
-            while (reader.readLine().also { line = it } != null) {
-                val l = line ?: continue
-                // Tolerate `data:` with or without the optional space — the
-                // HTML5 SSE spec only treats one leading space as ignorable,
-                // and some OpenAI-compatible servers (e.g. China Telecom's
-                // eaichat.ctyun.cn deepseek-v4-oc endpoint) emit `data:{...}`
-                // with no space. Strict `data: ` matching dropped every
-                // chunk on those providers, surfacing as empty-stream errors.
-                if (!l.startsWith("data:")) continue
-                val payload = l.removePrefix("data:").let {
-                    if (it.startsWith(" ")) it.removePrefix(" ") else it
+            val firstLine = reader.readLine()
+            if (firstLine != null && !firstLine.startsWith("data:") && firstLine.trimStart().startsWith("{")) {
+                val fullBody = firstLine + "\n" + reader.readText()
+                val json = try { JSONObject(fullBody) } catch (_: Exception) { null }
+                val choices = json?.optJSONArray("choices")
+                if (choices != null) {
+                    if (choices.length() > 0) {
+                        val firstChoice = choices.getJSONObject(0)
+                        val msgObj = firstChoice.optJSONObject("message")
+                        val text = msgObj?.optString("content", "") ?: ""
+                        val reason = firstChoice.optString("finish_reason", "stop")
+                        if (text.isNotEmpty()) {
+                            send(LLMStreamChunk.Text(text))
+                        }
+                        send(LLMStreamChunk.Finished(reason))
+                    } else {
+                        send(LLMStreamChunk.Finished(null))
+                    }
+                    sentFinished = true
                 }
+                val usageObj = json?.optJSONObject("usage")
+                if (usageObj != null) {
+                    val prompt = usageObj.optInt("prompt_tokens", 0)
+                    val comp = usageObj.optInt("completion_tokens", 0)
+                    val cached = usageObj.optJSONObject("prompt_tokens_details")?.optInt("cached_tokens", 0) ?: 0
+                    send(LLMStreamChunk.Usage(LLMUsage(
+                        inputTokens = prompt,
+                        outputTokens = comp,
+                        cacheReadInputTokens = if (cached > 0) cached else null,
+                    )))
+                }
+            } else {
+                var l: String? = firstLine
+                while (l != null || reader.readLine().also { l = it } != null) {
+                    val currentLine = l ?: continue
+                    l = null
+                    if (!currentLine.startsWith("data:")) continue
+                    val payload = currentLine.removePrefix("data:").let {
+                        if (it.startsWith(" ")) it.removePrefix(" ") else it
+                    }
                 if (payload == "[DONE]") {
                     // [T-android-think-prefix-stream] Flush whatever the parser
                     // still holds (a cross-chunk tag tail, or an unterminated
@@ -1481,6 +1511,7 @@ class OpenAIProvider private constructor(
                         "reasoningLen=$reasoningLen toolCallEvents=$toolCallEventCount sawUsage=$sawUsageBlock"
                 )
             }
+        }
         } catch (e: Exception) {
             // T321: never silently swallow — log message + top-3 stack frames.
             val frames = e.stackTrace.take(3).joinToString(" | ") { "${it.className}.${it.methodName}:${it.lineNumber}" }

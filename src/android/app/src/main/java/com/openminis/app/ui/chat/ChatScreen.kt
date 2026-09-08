@@ -874,6 +874,7 @@ fun ChatScreen(
     var showAttachMenu by remember { mutableStateOf(false) }
     var showChatMenu by remember { mutableStateOf(false) }
     var showSkillsSheet by remember { mutableStateOf(false) }
+    var showSystemPromptSheet by remember { mutableStateOf(false) }
     // [T-mcp-integration-android] MCPs-in-Session sheet visibility.
     var showMcpsSheet by remember { mutableStateOf(false) }
     var showTokenUsageSheet by remember { mutableStateOf(false) }
@@ -2972,6 +2973,17 @@ fun ChatScreen(
                                     },
                                 )
                             }
+                            // System Prompt & Append Prompt Sheet (SYSTEM.md / APPEND_SYSTEM.md)
+                            DropdownMenuItem(
+                                text = { Text("系统提示词 (SYSTEM.md)") },
+                                onClick = {
+                                    showChatMenu = false
+                                    showSystemPromptSheet = true
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Terminal, contentDescription = null)
+                                },
+                            )
                             // Session Memory (iOS parity)
                             if (memoryRepository != null && menuMemoryEnabled) {
                                 DropdownMenuItem(
@@ -6844,6 +6856,22 @@ fun ChatScreen(
             mcpRepository = mcpRepository,
             sessionId = sessionId,
             onDismiss = { showMcpsSheet = false },
+        )
+    }
+
+    // System Prompt and Append Prompt bottom sheet (SYSTEM.md / APPEND_SYSTEM.md)
+    if (showSystemPromptSheet) {
+        val (currentSys, currentApp) = remember(showSystemPromptSheet) { viewModel.loadSystemPromptFiles() }
+        SystemPromptSheet(
+            systemMdContent = currentSys,
+            appendSystemMdContent = currentApp,
+            defaultPrompt = viewModel.defaultBaseSystemPrompt(),
+            onSave = { systemMd, appendMd ->
+                viewModel.saveSystemPromptFiles(systemMd, appendMd)
+                android.widget.Toast.makeText(context, "已保存 SYSTEM.md 与 APPEND_SYSTEM.md", android.widget.Toast.LENGTH_SHORT).show()
+                showSystemPromptSheet = false
+            },
+            onDismiss = { showSystemPromptSheet = false },
         )
     }
 

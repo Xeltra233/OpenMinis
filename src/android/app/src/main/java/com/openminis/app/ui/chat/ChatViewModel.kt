@@ -905,6 +905,55 @@ class ChatViewModel(
         _sessionGoal.value = SessionGoal(objective = objective, status = "active")
     }
 
+    internal val _customSystemPrompt = MutableStateFlow<String?>(null)
+    val customSystemPrompt: StateFlow<String?> = _customSystemPrompt.asStateFlow()
+
+    internal val _appendSystemPrompt = MutableStateFlow<String?>(null)
+    val appendSystemPrompt: StateFlow<String?> = _appendSystemPrompt.asStateFlow()
+
+    fun setCustomSystemPrompt(custom: String?, append: String?) {
+        _customSystemPrompt.value = custom?.takeIf { it.isNotBlank() }
+        _appendSystemPrompt.value = append?.takeIf { it.isNotBlank() }
+    }
+
+    fun loadSystemPromptFiles(): Pair<String, String> {
+        val repo = memoryRepository
+        val defaultSys = defaultBaseSystemPrompt()
+        val sys = repo?.readFile("SYSTEM.md")?.takeIf { it.isNotBlank() } ?: defaultSys
+        val app = repo?.readFile("APPEND_SYSTEM.md") ?: ""
+        return sys to app
+    }
+
+    fun saveSystemPromptFiles(systemMd: String, appendMd: String) {
+        val repo = memoryRepository ?: return
+        repo.saveFile("SYSTEM.md", systemMd)
+        repo.saveFile("APPEND_SYSTEM.md", appendMd)
+        _customSystemPrompt.value = systemMd
+        _appendSystemPrompt.value = appendMd
+    }
+
+    fun defaultBaseSystemPrompt(): String {
+        val identitySection = com.openminis.app.agent.SystemPromptBuilder.identitySection(context)
+        return identitySection + """You should proactively use shell commands to accomplish the user's tasks — installing packages (apk add), writing and running scripts, managing files, networking, and any other operations a Linux terminal can perform.
+
+Available tools:
+- shell_execute: Run any shell command. Each invocation is an isolated process with stdout/stderr captured.
+- file_read: Read file contents (faster than cat).
+- file_write: Create new files or overwrite existing files (faster than echo/tee).
+- file_edit: Edit existing files with exact string replacement (old_string → new_string). Preferred over file_write for modifications — always file_read first.
+- browser_use: Web browsing (navigate, screenshot, click, type, get_text, scroll, scroll_and_collect, get_readable, get_backbone, fetch, etc.).
+- todo: Manage a structured todo list for tracking progress during complex multi-step work. Actions: create, update, list, delete, clear.
+- task: Manage structured tasks and subtasks for multi-step goals. Actions: create, update, list, delete, complete.
+- goal: Set or update the overarching objective / goal of the active session. Actions: set, update, get, complete.
+
+Shared directory /var/minis/ (bidirectional read/write between shell and app):
+  /var/minis/attachments/ — Media files (images, audio, video). Display inline with ![desc](minis://attachments/filename).
+  /var/minis/workspace/   — Working files (scripts, data, configs). Link with [name](minis://workspace/filename).
+  /var/minis/offloads/    — Auto-saved large outputs. Read with file_read.
+  /var/minis/browser/     — Browser screenshots and extracts.
+  /var/minis/shared/      — Cross-session shared storage for artifacts and documents."""
+    }
+
     /**
      * [T-android-paste-placeholder] Long pasted blocks folded out of the
      * composer, keyed by the `[Pasted#N]` marker left in its place.
@@ -10283,7 +10332,12 @@ Memory system (currently DISABLED):
 - If the user asks why earlier memories aren't visible, or asks you to save something, tell them memory is currently disabled and point them at the /memory slash command or [Settings → Memory](minis://settings/memory) to re-enable it.
 - SOUL.md (personality / identity) is unaffected by this toggle; the persona section above still applies."""
         }
-        val base = identitySection + """You should proactively use shell commands to accomplish the user's tasks — installing packages (apk add), writing and running scripts, managing files, networking, and any other operations a Linux terminal can perform.
+        val repo = memoryRepository
+        val customPrompt = _customSystemPrompt.value?.trim() ?: repo?.readFile("SYSTEM.md")?.trim().takeIf { !it.isNullOrEmpty() }
+        val base = if (!customPrompt.isNullOrEmpty()) {
+            customPrompt
+        } else {
+            identitySection + """You should proactively use shell commands to accomplish the user's tasks — installing packages (apk add), writing and running scripts, managing files, networking, and any other operations a Linux terminal can perform.
 
 Available tools:
 - shell_execute: Run any shell command. Each invocation is an isolated process with stdout/stderr captured. Prefer this for most tasks — it is a real Linux environment with persistent filesystem. Common tools (python3, pip, curl, wget, git, ssh, etc.) can be installed via apk add; Python packages via pip install. Use `which <cmd>` to check if a tool is already installed before running apk add — many packages persist across sessions. When you need to wait before checking results (e.g. polling, waiting for a process), use the `delay` parameter instead of `sleep` in the command — delay blocks the agent flow without occupying the shell, so other concurrent tasks can use it during the wait. This avoids resource contention. Execution discipline for long-running or dispatched work: make tool calls immediately instead of describing intentions, and keep working until the task is complete. Without a scheduler or timed-callback tool, `delay` is your ONLY wait mechanism within a turn — to follow up on something still running, chain delay-then-check calls at a task-appropriate interval until you have the result or hit a sensible retry cap. NEVER end a turn with a promise of future action: 'I'll keep monitoring', 'will sync the result later', and ending right after a single still-running status check with 'let's keep waiting' are all the same violation — once your turn ends, NOTHING runs until the user's next message. If polling to completion is genuinely not worth blocking the turn, close honestly instead: state that the task keeps running in the background, that you will only learn its outcome when the user next messages (or they ask you to check), and — if something must fire on a schedule beyond this conversation — point them to the options under 'Scheduled tasks' later in this prompt (native alarm reminder or a system-level schedule; those notify the USER, they do not wake you).
@@ -10377,6 +10431,7 @@ Environment variables:
 - To check if a variable is set, use `[ -n "${'$'}VAR" ] && echo 'set' || echo 'not set'`. NEVER use echo ${'$'}VAR, printenv VAR, or any command that would output the actual value into the conversation context.${memorySystemSection}
 
 Scheduled tasks: crontab / at / nohup loops will stop when the app is suspended, so in-app scheduled scripts may not run as expected. For recurring tasks that must fire while the app is backgrounded, use the native alarm tool (AlarmManager) or tell the user to set up a system-level schedule (Google Calendar event, Tasker automation, etc.). (Waiting or polling WITHIN the current turn is different — that is what shell_execute `delay` chains are for, per the shell_execute notes above.)"""
+        }
 
         // Match iOS order exactly: skills → global memory → recent daily memory.
         // See ios/Agent/Chat/AIChatViewModel.swift:4375-4387. Each fragment is
@@ -10441,6 +10496,11 @@ Scheduled tasks: crontab / at / nohup loops will stop when the app is suspended,
             append("- Current date: ").append(dateStr).append(" (").append(tzId).append(")\n")
             append("- Device language: ").append(lang).append("\n")
             append("- minis-model-use models available: ").append(modelUseCount)
+            val appendPrompt = _appendSystemPrompt.value?.trim() ?: repo?.readFile("APPEND_SYSTEM.md")?.trim().takeIf { !it.isNullOrEmpty() }
+            if (!appendPrompt.isNullOrEmpty()) {
+                append("\n\nAdditional Instructions (from APPEND_SYSTEM.md):\n")
+                append(appendPrompt)
+            }
         }
     }
 
