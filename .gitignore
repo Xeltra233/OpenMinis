@@ -147,3 +147,7 @@ deps/lame-3.100/**/.deps/
 # built alongside (deps/build_rclone_ios.sh).
 src/android/app/libs/rclone.aar
 src/android/app/provider-customization.properties
+
+# Local goal workspaces and screenshots
+goal-*/
+screen*.png
