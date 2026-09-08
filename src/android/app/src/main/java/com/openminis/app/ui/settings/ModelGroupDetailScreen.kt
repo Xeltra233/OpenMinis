@@ -35,17 +35,14 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -463,21 +460,44 @@ fun ModelGroupDetailScreen(
                                 ThinkingLevel.OFF -> stringResource(R.string.model_group_detail_thinking_low)
                             }
                         }
-                        // Steps exclude OFF (the toggle above carries OFF
-                        // semantics) and everything above the group ceiling.
+                        // Offer all 6 levels up to ULTRA in group settings so users can select Ultra/Max.
                         val cases = ThinkingLevel.entries
-                            .filter { it != ThinkingLevel.OFF && it.rank <= groupMaxThinkingLevel.rank }
+                            .filter { it != ThinkingLevel.OFF }
                             .map { it to labelFor(it) }
-                        ThinkingIntensitySlider(
-                            currentLevel = defaultThinkingLevel ?: ThinkingLevel.MEDIUM,
-                            availableLevels = cases,
-                            onLevelChange = { level ->
-                                defaultThinkingLevel = level
-                                providerRepository.updateGroup(
-                                    group.copy(defaultThinkingLevel = level)
-                                )
-                            },
-                        )
+                        SettingsCardBlock {
+                            Text(
+                                text = stringResource(R.string.model_group_detail_intensity),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(bottom = 6.dp),
+                            )
+                            SingleChoiceSegmentedButtonRow(
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            {
+                                cases.forEachIndexed { idx, (level, label) ->
+                                    SegmentedButton(
+                                        selected = defaultThinkingLevel == level,
+                                        onClick = {
+                                            defaultThinkingLevel = level
+                                            providerRepository.updateGroup(
+                                                group.copy(defaultThinkingLevel = level)
+                                            )
+                                        },
+                                        shape = SegmentedButtonDefaults.itemShape(
+                                            index = idx,
+                                            count = cases.size,
+                                        ),
+                                    ) {
+                                        Text(
+                                            text = label,
+                                            maxLines = 1,
+                                            style = MaterialTheme.typography.labelMedium,
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                     val contextEnabled = contextLimitTokens != null
                     // T-android-ctx-slider-cap (port iOS fa77f493): the slider
@@ -650,81 +670,6 @@ private val CONTEXT_LIMIT_PRESETS = listOf(
 
 private fun formatPresetLabel(tokens: Int): String =
     if (tokens >= 1_000_000) "${tokens / 1_000_000}M" else "${tokens / 1_000}K"
-
-@Composable
-private fun ThinkingIntensitySlider(
-    currentLevel: ThinkingLevel,
-    availableLevels: List<Pair<ThinkingLevel, String>>,
-    onLevelChange: (ThinkingLevel) -> Unit,
-) {
-    val cases = availableLevels.ifEmpty {
-        listOf(ThinkingLevel.MEDIUM to "Medium")
-    }
-    val currentIndex = remember(currentLevel, cases) {
-        val idx = cases.indexOfFirst { it.first == currentLevel }
-        if (idx >= 0) idx else cases.indexOfFirst { it.first == ThinkingLevel.MEDIUM }.coerceAtLeast(0)
-    }
-    var selectedIndex by remember(currentIndex) { mutableIntStateOf(currentIndex) }
-
-    LaunchedEffect(currentLevel, cases) {
-        val idx = cases.indexOfFirst { it.first == currentLevel }
-        if (idx >= 0 && idx != selectedIndex) {
-            selectedIndex = idx
-        }
-    }
-
-    SettingsCardBlock {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = stringResource(R.string.model_group_detail_intensity),
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.weight(1f),
-            )
-            val currentLabel = cases.getOrNull(selectedIndex)?.second ?: cases[0].second
-            Text(
-                text = currentLabel,
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFFAF52DE),
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
-        Slider(
-            value = selectedIndex.toFloat(),
-            onValueChange = { newIndex ->
-                val idx = newIndex.roundToInt().coerceIn(0, cases.lastIndex)
-                if (idx != selectedIndex) {
-                    selectedIndex = idx
-                    onLevelChange(cases[idx].first)
-                }
-            },
-            valueRange = 0f..cases.lastIndex.toFloat().coerceAtLeast(1f),
-            steps = (cases.size - 2).coerceAtLeast(0),
-            modifier = Modifier.fillMaxWidth(),
-            colors = SliderDefaults.colors(
-                thumbColor = Color(0xFFAF52DE),
-                activeTrackColor = Color(0xFFAF52DE),
-                activeTickColor = Color.White,
-                inactiveTickColor = Color(0xFFAF52DE).copy(alpha = 0.5f),
-            ),
-        )
-        Row(modifier = Modifier.fillMaxWidth()) {
-            Text(
-                cases.first().second,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.weight(1f))
-            Text(
-                cases.last().second,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
 
 @Composable
 private fun ContextLimitSlider(

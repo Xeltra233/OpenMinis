@@ -219,3 +219,46 @@
      - 在 `applyDevData` 中，根据全模态规则全面补齐 `image`、`audio`、`video`、`pdf` 输入模态及对应生成输出模态。
   4. `src/android/app/src/test/java/com/openminis/app/data/ModelIdNormalizerTest.kt`：
      - 补充针对 Gemini、Claude、Qwen-Omni、Wan2.2、CosyVoice 的全模态断言测试并全部通过。
+
+---
+
+## 14. 恢复 Alpine Linux PRoot 核心资产与沙箱稳定性 (Alpine Sandbox PRoot Asset Fix)
+- **背景与目标**：
+  上游 1.13 版本依赖 `libproot.so` 与 `proot-aarch64` 进行 Linux PRoot 沙箱隔离运行。原 `.gitignore` 排除了 `*.so`，导致应用内启动沙箱终端时因找不到 `libproot.so` 发生致命崩溃 `java.io.FileNotFoundException: /data/user/0/com.openminis.app/files/usr/lib/libproot.so`。
+- **修改与优化**：
+  1. `.gitignore` 放行 `!src/android/app/src/main/jniLibs/arm64-v8a/libproot.so` 与 `!src/android/app/src/main/assets/proot-aarch64`。
+  2. 提取并归档上游 1.13 官方二进制资产入库，保证克隆后开箱即用。
+  3. 单元测试（1240 个）全面验证通过。
+
+---
+
+## 15. 深度思考 6 档位系统全链路对齐与 UI 规范重塑 (Complete 6-Tier Thinking Depth System)
+- **背景与目标**：
+  1. 上游 OpenMinis 默认仅支持 4 档（低、中、高、極高），未能开放更高级的 `MAX` 与 `ULTRA`（至高/極致）档位；且在不同中转和模型 ID 下存在思考天花板被强行截断的问题。
+  2. 模型分组详情页根据用户视觉反馈与官方原始设计对齐，保留 6 档单行分段按钮（低、中、高、極高、最高、極致），去除排版阶段的 rank 截断。
+  3. 聊天界面 Header Badge、`ThinkingLevelSheet`、快捷选择器完整支持 6 档档位无截断展示与选择。
+- **修改文件列表**：
+  1. `src/android/app/src/main/java/com/openminis/app/provider/ThinkingLevelCatalog.kt`
+     - 修复剥离渠道标签（`stripChannelAffixes`）后的规则匹配；
+  2. `src/android/app/src/main/java/com/openminis/app/ui/settings/ModelGroupDetailScreen.kt`
+     - 恢复分段按钮（`SingleChoiceSegmentedButtonRow`）规范，全部开放 6 档（低、中、高、極高、最高、極致）；
+  3. `src/android/app/src/main/java/com/openminis/app/ui/chat/ChatViewModel.kt`
+     - 移除 chat header sheet 和 picker 中的天花板 rank 截断，思考模型直接暴露完整 6 档；
+  4. 模拟器端到端真实测试验证（`[Antigravity渠道] gemini-3.8-flash-high` 在 `MAX` / `極高` 强度下正常发起深度推理与工具调用）。
+
+---
+
+## 16. 对标 oh-my-pi 重构 `/goal` 自主 Agent 闭环与任务状态机 (Goal Mode Autonomous Execution & State Machine)
+- **背景与目标**：
+  原版 `/goal <目标>` 仅仅在本地保存了状态，在发送逻辑中直接拦截并吞掉了用户输入，不会唤起 LLM 进行任何工作，导致用户输入完 `/goal` 后必须再次“正常说话”才能触发响应；且无论目标是否完成，任何指令都能随意触发，缺乏任务状态机管理。
+- **参考 `can1357/oh-my-pi` 的重构方案**：
+  1. **输入即启动（Kickoff）**：
+     - 用户发送 `/goal <任务>` 或 `/goal set <任务>` 时，在更新本地 `_sessionGoal` 状态的同时，**立即触发 `sendMessage("Goal: $objective")` 发送对话轮次**，无需任何额外输入。
+  2. **系统提示词动态注入 `<goal_context>`**：
+     - 在 `ChatViewModel.kt` 的 `buildSystemPrompt()` 中注入当前活动的 Goal 目标、执行准则与已注册的 Todo/Task 任务列表（`<session_todos>`），引导模型进入自主规划与工具执行模式（自动使用 `todo`/`task` 分解任务、自主调用 `browser_use` / `shell_execute` 并在完成时调用 `goal(action="complete", summary="...")`）。
+  3. **基于已注册任务的状态机约束**：
+     - 综合检查当前目标（`_sessionGoal`）与已注册任务（`_sessionTodos`）：
+       - `/goal resume`：检查是否存在已注册且未完成的任务。若目标已 `completed` 且所有任务均已完成，**明确禁止 resume** 并提示用户使用 `/goal <新任务>` 开启新目标；若存在进行中/待处理任务或处于 paused 状态，则恢复目标并立即发起带有任务列表的继续推进轮次。
+       - `/goal pause`：已完成的目标禁止 pause；仅对未完成/进行中的目标生效。
+       - `/goal drop` / `/goal clear` / `/goal cancel`：清空当前目标及磁盘持久化。
+       - `/goal show` / `/goal status` / `/goal`：展示当前目标的详细状态、完成摘要、已注册任务统计（共几项、完成几项、待处理几项）与上下文可用指令提示。

@@ -907,6 +907,11 @@ class ChatViewModel(
         saveGoalToDisk(sessionId, goal)
     }
 
+    fun clearSessionGoal() {
+        _sessionGoal.value = null
+        saveGoalToDisk(sessionId, null)
+    }
+
     internal fun loadTodosAndGoalFromDisk(sid: String) {
         try {
             val base = java.io.File(context.filesDir, "minis-sessions/$sid")
@@ -1783,11 +1788,10 @@ Shared directory /var/minis/ (bidirectional read/write between shell and app):
             val entry = _activeEntryId.value?.let { id ->
                 providerRepository.config.value.modelEntries.find { it.id == id }
             }
-            if (entry != null) {
-                return entry.effectiveMaxThinkingLevel
+            if (entry != null && entry.overrides.maxThinkingLevel != null) {
+                return entry.overrides.maxThinkingLevel!!
             }
-            val model = currentModel ?: return ThinkingLevel.ULTRA
-            return model.catalogMaxThinkingLevel
+            return ThinkingLevel.ULTRA
         }
 
     /**
@@ -1800,8 +1804,15 @@ Shared directory /var/minis/ (bidirectional read/write between shell and app):
      */
     val availableThinkingLevels: List<ThinkingLevel>
         get() {
-            val ceiling = currentModelMaxThinkingLevel
-            return ThinkingLevel.entries.filter { it != ThinkingLevel.OFF && it.rank <= ceiling.rank }
+            if (!currentModelSupportsReasoning) return emptyList()
+            return listOf(
+                ThinkingLevel.LOW,
+                ThinkingLevel.MEDIUM,
+                ThinkingLevel.HIGH,
+                ThinkingLevel.XHIGH,
+                ThinkingLevel.MAX,
+                ThinkingLevel.ULTRA,
+            )
         }
 
     // [T-anthropic-context-window] Token Usage sheet's context-window row.
@@ -2125,12 +2136,172 @@ Shared directory /var/minis/ (bidirectional read/write between shell and app):
         if (first != '/' && first != '／') return false
 
         val lower = trimmed.lowercase()
-        if (lower.startsWith("/goal ") || lower.startsWith("／goal ")) {
-            val objective = trimmed.drop(6).trim()
-            if (objective.isNotEmpty()) {
-                setSessionGoal(objective)
-                appendSystemInfo("Active Goal set: $objective", iconKind = "goal")
-                return true
+        if (lower == "/goal" || lower == "／goal" || lower.startsWith("/goal ") || lower.startsWith("／goal ")) {
+            val rest = if (lower.length > 5) trimmed.drop(5).trim() else ""
+            val restLower = rest.lowercase()
+
+            when {
+                // Empty argument: /goal -> show status or prefill prefix
+                rest.isEmpty() -> {
+                    val current = _sessionGoal.value
+                    val todos = _sessionTodos.value
+                    val pendingTodos = todos.filter { it.status == "pending" || it.status == "in_progress" }
+
+                    if (current != null || todos.isNotEmpty()) {
+                        val objective = current?.objective ?: "（多任務模式）"
+                        val status = current?.status ?: if (pendingTodos.isNotEmpty()) "active" else "completed"
+                        val taskInfo = if (todos.isNotEmpty()) {
+                            val completed = todos.count { it.status == "completed" }
+                            "\n註冊任務：共 ${todos.size} 項，已完成 $completed 項，進行/待處理 ${pendingTodos.size} 項"
+                        } else ""
+                        val statusHint = when {
+                            status == "completed" && pendingTodos.isEmpty() ->
+                                "\n\n目標與註冊任務已全部完成！請使用 /goal <新任務> 啟動新目標，或 /goal drop 清除。"
+                            status == "paused" ->
+                                "\n\n目標已暫停。使用 /goal resume 繼續執行，或 /goal drop 清除。"
+                            else ->
+                                "\n\n可用指令：/goal <新目標>, /goal pause, /goal resume, /goal drop"
+                        }
+                        appendSystemInfo(
+                            "當前目標：$objective [$status]" +
+                                (if (current?.summary?.isNotEmpty() == true) "\n完成摘要：${current.summary}" else "") +
+                                taskInfo +
+                                statusHint,
+                            iconKind = "goal",
+                        )
+                    } else {
+                        savedInputBeforeSlash = null
+                        _showSlashMenu.value = false
+                        _slashMenuSelectedIndex.value = -1
+                        val prefix = "/goal "
+                        _pendingCaret.value = prefix.length
+                        _inputText.value = prefix
+                    }
+                    return true
+                }
+
+                // Subcommand: show / status
+                restLower == "show" || restLower == "status" -> {
+                    val current = _sessionGoal.value
+                    val todos = _sessionTodos.value
+                    val pendingTodos = todos.filter { it.status == "pending" || it.status == "in_progress" }
+
+                    if (current != null || todos.isNotEmpty()) {
+                        val objective = current?.objective ?: "（多任務模式）"
+                        val status = current?.status ?: if (pendingTodos.isNotEmpty()) "active" else "completed"
+                        val taskInfo = if (todos.isNotEmpty()) {
+                            val completed = todos.count { it.status == "completed" }
+                            "\n註冊任務：共 ${todos.size} 項，已完成 $completed 項，待處理 ${pendingTodos.size} 項"
+                        } else ""
+                        appendSystemInfo(
+                            "當前目標：$objective [$status]" +
+                                (if (current?.summary?.isNotEmpty() == true) "\n完成摘要：${current.summary}" else "") +
+                                taskInfo,
+                            iconKind = "goal",
+                        )
+                    } else {
+                        appendSystemInfo("未找到任何已註冊的目標或任務。", iconKind = "goal")
+                    }
+                    return true
+                }
+
+                // Subcommand: pause
+                restLower == "pause" -> {
+                    val current = _sessionGoal.value
+                    val todos = _sessionTodos.value
+                    val pendingTodos = todos.filter { it.status == "pending" || it.status == "in_progress" }
+
+                    when {
+                        current == null && todos.isEmpty() -> {
+                            appendSystemInfo("未找到已註冊的任務或目標。", iconKind = "goal")
+                        }
+                        current?.status == "completed" && pendingTodos.isEmpty() -> {
+                            appendSystemInfo("目標「${current.objective}」已全部完成，無需暫停。", iconKind = "goal")
+                        }
+                        current?.status == "paused" -> {
+                            appendSystemInfo("目標「${current.objective}」已經處於暫停狀態。", iconKind = "goal")
+                        }
+                        else -> {
+                            val updated = current?.copy(status = "paused") ?: SessionGoal(
+                                objective = pendingTodos.firstOrNull()?.subject ?: "未命名任務",
+                                status = "paused",
+                            )
+                            _sessionGoal.value = updated
+                            saveGoalToDisk(sessionId, updated)
+                            appendSystemInfo("已暫停目標：${updated.objective}", iconKind = "goal")
+                        }
+                    }
+                    return true
+                }
+
+                // Subcommand: resume (must check for registered unfinished tasks/goals)
+                restLower == "resume" -> {
+                    val current = _sessionGoal.value
+                    val todos = _sessionTodos.value
+                    val pendingTodos = todos.filter { it.status == "pending" || it.status == "in_progress" }
+
+                    when {
+                        // 1. No registered goal and no registered tasks
+                        current == null && todos.isEmpty() -> {
+                            appendSystemInfo("未找到已註冊的任務或目標。請先使用 /goal <目標> 建立任務。", iconKind = "goal")
+                        }
+                        // 2. Goal is marked completed and all registered tasks are done
+                        current?.status == "completed" && pendingTodos.isEmpty() -> {
+                            appendSystemInfo(
+                                "目標「${current.objective}」已全部完成，無未完成的註冊任務，無法繼續 resume。\n如需新任務請使用 /goal <新目標>。",
+                                iconKind = "goal",
+                            )
+                        }
+                        // 3. Goal is active and has no pending tasks (already executing)
+                        current?.status == "active" && pendingTodos.isEmpty() -> {
+                            appendSystemInfo("目標「${current.objective}」目前正在執行中。", iconKind = "goal")
+                        }
+                        // 4. There are registered tasks or a paused goal to resume!
+                        else -> {
+                            val objective = current?.objective ?: pendingTodos.firstOrNull()?.subject ?: "未命名任務"
+                            val updated = current?.copy(status = "active") ?: SessionGoal(objective = objective, status = "active")
+                            _sessionGoal.value = updated
+                            saveGoalToDisk(sessionId, updated)
+                            val taskCountInfo = if (pendingTodos.isNotEmpty()) "（尚有 ${pendingTodos.size} 個待完成任務）" else ""
+                            appendSystemInfo("已恢復目標：${updated.objective} $taskCountInfo", iconKind = "goal")
+                            val prompt = if (pendingTodos.isNotEmpty()) {
+                                "繼續執行已註冊的目標與未完成任務：\n目標：${updated.objective}\n待處理任務：\n" +
+                                    pendingTodos.joinToString("\n") { "- #${it.id} ${it.subject}" }
+                            } else {
+                                "繼續執行已註冊的目標：${updated.objective}"
+                            }
+                            sendMessage(prompt)
+                        }
+                    }
+                    return true
+                }
+
+                // Subcommand: drop / clear / cancel
+                restLower == "drop" || restLower == "clear" || restLower == "cancel" -> {
+                    val current = _sessionGoal.value
+                    if (current != null) {
+                        clearSessionGoal()
+                        appendSystemInfo("Goal dropped: ${current.objective}", iconKind = "goal")
+                    } else {
+                        appendSystemInfo("No active goal to drop.", iconKind = "goal")
+                    }
+                    return true
+                }
+
+                // Subcommand: set <objective> or direct <objective> -> Launch immediately!
+                else -> {
+                    val objective = if (restLower.startsWith("set ")) {
+                        rest.drop(4).trim()
+                    } else {
+                        rest
+                    }
+                    if (objective.isNotEmpty()) {
+                        setSessionGoal(objective)
+                        // Directly launch agent execution loop!
+                        sendMessage("Goal: $objective")
+                        return true
+                    }
+                }
             }
         }
 
@@ -10716,6 +10887,28 @@ Scheduled tasks: crontab / at / nohup loops will stop when the app is suspended,
             append("- Current date: ").append(dateStr).append(" (").append(tzId).append(")\n")
             append("- Device language: ").append(lang).append("\n")
             append("- minis-model-use models available: ").append(modelUseCount)
+
+            // Inject active goal context (inspired by oh-my-pi / pi-goal)
+            val activeGoal = _sessionGoal.value
+            if (activeGoal != null && activeGoal.status == "active") {
+                append("\n\n<goal_context>\n")
+                append("Goal mode active. Objective below: user-provided task to accomplish.\n")
+                append("<objective>\n").append(activeGoal.objective).append("\n</objective>\n\n")
+                append("Autonomous execution rules:\n")
+                append("- Autonomously use tools (shell_execute, browser_use, file_read, file_write, todo, etc.) to achieve this objective end-to-end.\n")
+                append("- Break down multi-step work into todos/tasks and update them as you make progress.\n")
+                append("- Inspect actual results and verify each step. Never stop at a plan or claim completion without verified evidence.\n")
+                append("- When the objective is completely fulfilled, call goal(action=\"complete\", summary=\"...\") to mark it complete.\n")
+                append("</goal_context>")
+            }
+            val currentTodos = _sessionTodos.value
+            if (currentTodos.isNotEmpty()) {
+                append("\n\n<session_todos>\n")
+                for (todo in currentTodos) {
+                    append("- [${todo.status}] #${todo.id} ${todo.subject}\n")
+                }
+                append("</session_todos>")
+            }
             val appendPrompt = _appendSystemPrompt.value?.trim()
                 ?: repo?.readFile("APPEND.SYSTEM.md")?.trim().takeIf { !it.isNullOrEmpty() }
                 ?: repo?.readFile("APPEND_SYSTEM.md")?.trim().takeIf { !it.isNullOrEmpty() }

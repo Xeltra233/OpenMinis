@@ -35,22 +35,25 @@ git merge upstream/main
 
 ### 步骤 C：解决冲突策略说明
 若遇到冲突，参考 `docs/custom-fork/CHANGELOG.md` 中列出的二开修改点进行保留：
-1. **思考深度相关文件** (`ThinkingLevelCatalog.kt` / `ProviderConfig.kt` / `LLMTypes.swift`)：
-   - 保留 `ThinkingLevel.ULTRA` 作为上限和安全兜底（将原版可能的 `XHIGH` 改回 `ULTRA`）。
+1. **思考深度全链路与分段按钮** (`ThinkingLevelCatalog.kt` / `ProviderConfig.kt` / `ModelGroupDetailScreen.kt` / `ChatViewModel.kt` / `LLMTypes.swift`)：
+   - 保留 `ThinkingLevel.ULTRA` 作为上限和安全兜底（将原版可能的 `XHIGH` 改回 `ULTRA`）；
+   - 保留模型分组中的 6 档单行分段按钮（`SingleChoiceSegmentedButtonRow`：低、中、高、極高、最高、極致），避免回退到被 rank 截断的旧布局；
+   - 保留 `ChatViewModel.kt` 中思考模型直接提供完整 6 档可选能力。
 2. **多模态与模型 ID 识别** (`ModelIdNormalizer` / `VoiceModality.kt` / `ModelsDevApi.kt`)：
    - 确保 `stripChannelAffixes`、`isVisionModel`、`isAudioInputModel`、`isVideoInputModel`、`isPdfInputModel` 及其全模态输出生成规则保留，避免带渠道名的模型丢失模态。
-3. **Agent 工具与提示词** (`AgentTools.kt` / `ChatViewModel.kt` / `SystemPromptSheet.kt` / `SettingsScreen.kt`)：
+3. **Agent 任务体系与 /goal 状态机** (`AgentTools.kt` / `ChatViewModel.kt` / `SystemPromptSheet.kt` / `SettingsScreen.kt`)：
    - 确保 `todo`、`task`、`goal` 工具在 `makeAgentTools` 中注册；
+   - 确保对标 `oh-my-pi` 的 `/goal` 执行闭环（输入即发送、动态注入 `<goal_context>` 与 `<session_todos>`、基于已注册任务的状态机判断）保留；
    - 确保 `buildSystemPrompt` 中加载 `SYSTEM.md` 与 `APPEND.SYSTEM.md` 的逻辑保留；
    - 确保设置主页的“系统提示词”常驻入口保留。
-4. **UI 卡片与滑动条交互** (`ChatScreen.kt` / `CollapsibleTodoCard.kt` / `ModelGroupDetailScreen.kt`)：
-   - 保留输入框上方的 `CollapsibleTodoCard` 挂载；
-   - 保留模型分组中的 `ThinkingIntensitySlider` 阶梯滑动条，避免回退到挤压的 6 键分段按钮。
+4. **UI 卡片与交互** (`ChatScreen.kt` / `CollapsibleTodoCard.kt`)：
+   - 保留输入框上方的 `CollapsibleTodoCard` 挂载与状态同步；
+   - 确保 Header Badge 与 `ThinkingLevelSheet` 支持 6 档平滑展开。
 5. **SSH 服务器与数据持久化** (`SSHServerRepository.kt` / `SSHServersScreen.kt` / `ChatViewModel.kt`)：
    - 保留 `SSHServerModel`、`SSHServerRepository` 与设置界面的路由；
    - 保留 `session_{id}_todos.json` 与 `session_{id}_goals.json` 的持久化逻辑。
-6. **Rootfs 镜像与 rclone 依赖** (`rclone.aar` / `alpine-minirootfs.tar.gz` / `RootfsManager.kt`)：
-   - 保持 `rclone.aar` 与 `alpine-minirootfs.tar.gz` 在 Git 中追踪；
+6. **Rootfs 镜像、PRoot 与 rclone 资产** (`libproot.so` / `proot-aarch64` / `rclone.aar` / `alpine-minirootfs.tar.gz` / `RootfsManager.kt`)：
+   - 保持 `libproot.so`、`proot-aarch64`、`rclone.aar` 与 `alpine-minirootfs.tar.gz` 在 Git 中追踪；
    - 保持 `RootfsManager.kt` 中的清华源/阿里源在线下载自愈兜底机制。
 
 ---
