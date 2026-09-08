@@ -570,9 +570,17 @@ struct LLMModel: Equatable, Hashable, Identifiable, Sendable, Codable {
         }
 
         // Second: try pattern-based inference as fallback
-        guard let inferred = Self.inferOutputModality(id: id, displayName: displayName) else { return enriched }
+        let isVision = ModelIdNormalizer.isVisionModel(id, displayName: displayName)
+        let isReasoning = ModelIdNormalizer.isReasoningModel(id, displayName: displayName)
+        var inferred = Self.inferOutputModality(id: id, displayName: displayName) ?? []
+        if isVision {
+            inferred.insert(.imageInput)
+        }
         let base = Self.knownCapabilities[provider]?.supportedModalities ?? Self.defaultCapabilities.supportedModalities
         enriched.modalityOverride = base.union(inferred)
+        if isReasoning && enriched.supportsReasoning == nil {
+            enriched.supportsReasoning = true
+        }
         return enriched
     }
 
@@ -662,13 +670,15 @@ struct LLMModel: Equatable, Hashable, Identifiable, Sendable, Codable {
     }
 
     var capabilities: ModelCapabilities {
-        if let override = modalityOverride {
-            return ModelCapabilities(
-                supportedModalities: override,
-                supportedAuth: (Self.knownCapabilities[provider] ?? Self.defaultCapabilities).supportedAuth
-            )
+        let auth = (Self.knownCapabilities[provider] ?? Self.defaultCapabilities).supportedAuth
+        var modalities = modalityOverride ?? (Self.knownCapabilities[provider]?.supportedModalities ?? Self.defaultCapabilities.supportedModalities)
+        if ModelIdNormalizer.isVisionModel(id, displayName: displayName) {
+            modalities.insert(.imageInput)
         }
-        return Self.knownCapabilities[provider] ?? Self.defaultCapabilities
+        return ModelCapabilities(
+            supportedModalities: modalities,
+            supportedAuth: auth
+        )
     }
 
     /// Returns a concise system-prompt fragment describing modality limits,

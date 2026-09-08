@@ -1021,6 +1021,9 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// All other provider types (anthropic, gemini, …) keep the strict rule,
     /// so a model genuinely marked `false` there still hides the toggle.
     static func entryAllowsReasoning(_ entry: ModelEntry, store: ProviderConfigStore) -> Bool {
+        if ModelIdNormalizer.isReasoningModel(entry.model.id, displayName: entry.model.displayName) {
+            return true
+        }
         if entry.model.supportsReasoning != false {
             return true  // true or nil → allowed
         }

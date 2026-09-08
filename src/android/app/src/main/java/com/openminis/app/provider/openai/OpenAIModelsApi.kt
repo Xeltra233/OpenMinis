@@ -2,6 +2,7 @@ package com.openminis.app.provider.openai
 
 import android.content.Context
 import com.openminis.app.data.model.LLMModel
+import com.openminis.app.data.model.ModelIdNormalizer
 import com.openminis.app.data.model.normalizeModalities
 import com.openminis.app.logging.AppLogger
 import com.openminis.app.provider.ModelsDevApi
@@ -144,22 +145,21 @@ object OpenAIModelsApi {
                 // suffixes; the rest of the codebase (models.dev, capability fragments,
                 // ModelEntryDetailScreen toggles) uses the bare form. Normalize at the parse
                 // boundary so persisted overrides round-trip correctly through the toggles.
-                val inputModalities = arch?.optJSONArray("input_modalities")?.toStringList().normalizeModalities()
-                val outputModalities = arch?.optJSONArray("output_modalities")?.toStringList().normalizeModalities()
+                val rawInputs = arch?.optJSONArray("input_modalities")?.toStringList().normalizeModalities()
+                val rawOutputs = arch?.optJSONArray("output_modalities")?.toStringList().normalizeModalities()
+                val isVision = ModelIdNormalizer.isVisionModel(id, displayName)
+                val inputModalities = when {
+                    rawInputs != null && isVision && !rawInputs.contains("image") -> rawInputs + "image"
+                    rawInputs != null -> rawInputs
+                    isVision -> listOf("text", "image")
+                    else -> null
+                }
+                val outputModalities = rawOutputs ?: if (isVision) listOf("text") else null
 
-                // T119: known reasoning families (GPT-5.x, o-series, Codex
-                // Mini) get supportsReasoning pre-set to true so the
-                // Thinking pill enables before models.dev enrichment lands
-                // — for brand-new ids (e.g. gpt-5.5) the catalog rarely has
-                // the `reasoning` flag yet, and without this the pill
-                // stays disabled.
-                val idLower = id.lowercase()
-                val knownReasoning = idLower.startsWith("gpt-5") ||
-                    idLower.startsWith("o1") ||
-                    idLower.startsWith("o3") ||
-                    idLower.startsWith("o4") ||
-                    idLower.contains("codex")
-
+                // Known reasoning families (GPT-5.x, o-series, Codex, Gemini reasoning, etc.)
+                // get supportsReasoning pre-set to true so the Thinking pill enables
+                // before models.dev enrichment lands.
+                val knownReasoning = ModelIdNormalizer.isReasoningModel(id, displayName)
                 parsed.add(
                     LLMModel(
                         id = id,

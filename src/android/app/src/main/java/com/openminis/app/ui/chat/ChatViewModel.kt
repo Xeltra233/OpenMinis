@@ -1610,7 +1610,9 @@ class ChatViewModel(
     val mentionSelectedIndex: StateFlow<Int> = _mentionSelectedIndex.asStateFlow()
 
     val currentModelSupportsReasoning: Boolean
-        get() = currentModel?.supportsReasoning == true
+        get() = currentModel?.let {
+            it.supportsReasoning == true || com.openminis.app.data.model.ModelIdNormalizer.isReasoningModel(it.id, it.displayName)
+        } ?: false
 
     /**
      * [T-android-thinking-level-arch] The thinking ceiling the currently-bound
@@ -1712,7 +1714,7 @@ class ChatViewModel(
     /** Read-only view of the current thinking configuration for the model. */
     fun thinkingInfo(): ThinkingInfo? {
         val model = currentModel ?: return null
-        val supported = model.supportsReasoning == true
+        val supported = model.supportsReasoning == true || com.openminis.app.data.model.ModelIdNormalizer.isReasoningModel(model.id, model.displayName)
         val level = _thinkingLevel.value
         val enabled = supported && level.isEnabled
         val levelText = if (enabled) level.displayName else "—"

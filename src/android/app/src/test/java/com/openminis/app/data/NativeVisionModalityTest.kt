@@ -106,4 +106,14 @@ class NativeVisionModalityTest {
         assertEquals(toolGateSupportsImages, skipsPlaceholder)
         assertEquals(skipsPlaceholder, readImageReturnsPixels)
     }
+
+    @Test
+    fun `channel prefixed models are recognized as vision capable`() {
+        val m1 = LLMModel(id = "[Antigravity渠道] gemini-3.8-flash-high", displayName = "Gemini", provider = "NewAPI")
+        val m2 = LLMModel(id = "[Antigravity渠道] gemini-pro-agent", displayName = "Gemini Agent", provider = "NewAPI")
+        val m3 = LLMModel(id = "【中转】gpt-4o-mini", displayName = "GPT-4o Mini", provider = "Custom")
+        assertTrue(m1.hasImageInput)
+        assertTrue(m2.hasImageInput)
+        assertTrue(m3.hasImageInput)
+    }
 }
