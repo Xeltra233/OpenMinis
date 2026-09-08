@@ -126,6 +126,9 @@ internal fun ChatViewModel.filteredSlashCommands(): List<SlashCommand> {
             "clear" -> cmd.copy(
                 subtitle = context.getString(R.string.slash_clear_subtitle),
             )
+            "goal" -> cmd.copy(
+                subtitle = _sessionGoal.value?.let { "Goal: ${it.objective}" } ?: "Set or inspect session goal",
+            )
             else -> cmd
         }
     }

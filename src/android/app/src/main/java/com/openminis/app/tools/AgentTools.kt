@@ -40,6 +40,9 @@ object AgentTools {
             add(memoryWriteDefinition())
             add(memoryGetDefinition())
         }
+        add(todoDefinition())
+        add(taskDefinition())
+        add(goalDefinition())
     }
 
     // Aligned with iOS AIChatViewModel.swift:4982-4993
@@ -135,5 +138,55 @@ object AgentTools {
         ),
         required = listOf("tool_title"),
         propertyOrdering = listOf("tool_title", "scope", "keywords"),
+    )
+
+    private fun todoDefinition(): AgentToolDefinition = AgentToolDefinition(
+        name = "todo",
+        description = "Manage a structured todo / task list for tracking progress during complex multi-step work. " +
+            "Actions: create (new item), update (change status/fields), list (all items), delete (remove item), clear (reset all). " +
+            "Status: pending -> in_progress -> completed, or cancelled. " +
+            "Always use this tool autonomously to organize your execution steps, track state, and inform the user of completed milestones.",
+        parameters = mapOf(
+            "tool_title" to AgentToolParam("string", "A concise 5-10 word summary of what this tool call does, shown to the user (e.g. 'Create task for API testing', 'Mark step 2 completed'). Use the same language as the user."),
+            "action" to AgentToolParam("string", "Action to perform: create, update, list, delete, clear", enumValues = listOf("create", "update", "list", "delete", "clear")),
+            "id" to AgentToolParam("integer", "Todo/task ID (required for update and delete)"),
+            "subject" to AgentToolParam("string", "Title or summary of the todo/task item (required for create)"),
+            "status" to AgentToolParam("string", "Item status: pending, in_progress, completed, cancelled", enumValues = listOf("pending", "in_progress", "completed", "cancelled")),
+            "description" to AgentToolParam("string", "Optional details or execution notes for the item"),
+        ),
+        required = listOf("action"),
+        propertyOrdering = listOf("tool_title", "action", "id", "subject", "status", "description"),
+    )
+
+    private fun taskDefinition(): AgentToolDefinition = AgentToolDefinition(
+        name = "task",
+        description = "Manage structured tasks and subtasks for multi-step goals. " +
+            "Actions: create, update, list, delete, complete. " +
+            "Supports tracking task dependencies, status (pending, in_progress, completed, cancelled), and execution summaries.",
+        parameters = mapOf(
+            "tool_title" to AgentToolParam("string", "A concise 5-10 word summary of what this tool call does, shown to the user (e.g. 'Add subtask', 'Complete task #1'). Use the same language as the user."),
+            "action" to AgentToolParam("string", "Action to perform: create, update, list, delete, complete", enumValues = listOf("create", "update", "list", "delete", "complete")),
+            "id" to AgentToolParam("integer", "Task ID (required for update, delete, complete)"),
+            "subject" to AgentToolParam("string", "Subject or title of the task"),
+            "status" to AgentToolParam("string", "Task status: pending, in_progress, completed, cancelled", enumValues = listOf("pending", "in_progress", "completed", "cancelled")),
+            "description" to AgentToolParam("string", "Longer description of the task"),
+        ),
+        required = listOf("action"),
+        propertyOrdering = listOf("tool_title", "action", "id", "subject", "status", "description"),
+    )
+
+    private fun goalDefinition(): AgentToolDefinition = AgentToolDefinition(
+        name = "goal",
+        description = "Manage or update the overarching objective / goal of the active session. " +
+            "Actions: set (set new goal objective), update (update current status/summary), get (inspect current goal), complete (mark goal as completed with summary).",
+        parameters = mapOf(
+            "tool_title" to AgentToolParam("string", "A concise 5-10 word summary of what this tool call does, shown to the user (e.g. 'Set session goal', 'Update goal progress'). Use the same language as the user."),
+            "action" to AgentToolParam("string", "Action to perform: set, update, get, complete", enumValues = listOf("set", "update", "get", "complete")),
+            "objective" to AgentToolParam("string", "The goal objective description"),
+            "status" to AgentToolParam("string", "Goal status: active, completed, blocked", enumValues = listOf("active", "completed", "blocked")),
+            "summary" to AgentToolParam("string", "Progress summary or evidence of completion"),
+        ),
+        required = listOf("action"),
+        propertyOrdering = listOf("tool_title", "action", "objective", "status", "summary"),
     )
 }

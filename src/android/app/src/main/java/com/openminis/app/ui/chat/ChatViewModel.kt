@@ -17,6 +17,7 @@ import com.openminis.app.data.db.MessageEntity
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Compress
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.outlined.Build
@@ -886,6 +887,23 @@ class ChatViewModel(
 
     internal val _attachments = MutableStateFlow<List<InputAttachment>>(emptyList())
     val attachments: StateFlow<List<InputAttachment>> = _attachments.asStateFlow()
+
+    internal val _sessionTodos = MutableStateFlow<List<SessionTodo>>(emptyList())
+    val sessionTodos: StateFlow<List<SessionTodo>> = _sessionTodos.asStateFlow()
+
+    internal val _sessionGoal = MutableStateFlow<SessionGoal?>(null)
+    val sessionGoal: StateFlow<SessionGoal?> = _sessionGoal.asStateFlow()
+
+    internal val _todosCollapsed = MutableStateFlow(false)
+    val todosCollapsed: StateFlow<Boolean> = _todosCollapsed.asStateFlow()
+
+    fun toggleTodosCollapsed() {
+        _todosCollapsed.value = !_todosCollapsed.value
+    }
+
+    fun setSessionGoal(objective: String) {
+        _sessionGoal.value = SessionGoal(objective = objective, status = "active")
+    }
 
     /**
      * [T-android-paste-placeholder] Long pasted blocks folded out of the
@@ -1787,6 +1805,12 @@ class ChatViewModel(
             title = "Thinking",
             subtitle = "",
         ),
+        SlashCommand(
+            id = "goal",
+            icon = Icons.Default.Flag,
+            title = "Goal",
+            subtitle = "",
+        ),
     )
 
     // [T-android-split-chat] filteredSlashCommands / updateSlashMenuState /
@@ -1848,6 +1872,19 @@ class ChatViewModel(
             "memory" -> toggleMemoryEnabled()
             "thinking" -> toggleThinking()
             "clear" -> _clearChatConfirmRequested.value = true
+            "goal" -> {
+                val current = _sessionGoal.value
+                if (current != null) {
+                    appendSystemInfo("Current Goal: ${current.objective} [${current.status}]", iconKind = "goal")
+                } else {
+                    savedInputBeforeSlash = null
+                    _showSlashMenu.value = false
+                    _slashMenuSelectedIndex.value = -1
+                    val prefix = "/goal "
+                    _pendingCaret.value = prefix.length
+                    return prefix
+                }
+            }
             else -> AppLogger.info(TAG, "[Slash] unrecognized id=${cmd.id} — no dispatch")
         }
         // [T-android-slash-menu-align-ios-prepend] Action command: restore the
@@ -1947,6 +1984,17 @@ class ChatViewModel(
         if (trimmed.isEmpty()) return false
         val first = trimmed[0]
         if (first != '/' && first != '／') return false
+
+        val lower = trimmed.lowercase()
+        if (lower.startsWith("/goal ") || lower.startsWith("／goal ")) {
+            val objective = trimmed.drop(6).trim()
+            if (objective.isNotEmpty()) {
+                setSessionGoal(objective)
+                appendSystemInfo("Active Goal set: $objective", iconKind = "goal")
+                return true
+            }
+        }
+
         val name = trimmed.drop(1).lowercase()
         val cmd = availableSlashCommands.firstOrNull { it.title.lowercase() == name }
             ?: return false
@@ -9179,7 +9227,122 @@ class ChatViewModel(
             "browser_use" -> executeBrowserUseTool(argsJson)
             "memory_write" -> executeMemoryWriteTool(argsJson)
             "memory_get" -> executeMemoryGetTool(argsJson)
+            "todo" -> executeTodoTool(argsJson)
+            "task" -> executeTaskTool(argsJson)
+            "goal" -> executeGoalTool(argsJson)
             else -> ToolExecutionResult("Unknown tool: $name", false)
+        }
+    }
+
+    private fun executeTodoTool(argsJson: String): ToolExecutionResult {
+        return try {
+            val args = JSONObject(argsJson)
+            val action = args.optString("action", "list").lowercase()
+            val currentList = _sessionTodos.value.toMutableList()
+
+            when (action) {
+                "create" -> {
+                    val nextId = (currentList.maxOfOrNull { it.id } ?: 0) + 1
+                    val subject = args.optString("subject", "Task #$nextId")
+                    val status = args.optString("status", "pending")
+                    val description = args.optString("description", "")
+                    val item = SessionTodo(id = nextId, subject = subject, status = status, description = description)
+                    currentList.add(item)
+                    _sessionTodos.value = currentList
+                    ToolExecutionResult(
+                        JSONObject().put("status", "ok").put("id", nextId).put("subject", subject).put("itemStatus", status).toString(),
+                        true,
+                    )
+                }
+                "update" -> {
+                    val id = args.optInt("id", -1)
+                    val idx = currentList.indexOfFirst { it.id == id }
+                    if (idx < 0) {
+                        ToolExecutionResult(JSONObject().put("error", "Todo #$id not found").toString(), false)
+                    } else {
+                        val existing = currentList[idx]
+                        val subject = if (args.has("subject")) args.getString("subject") else existing.subject
+                        val status = if (args.has("status")) args.getString("status") else existing.status
+                        val desc = if (args.has("description")) args.getString("description") else existing.description
+                        val updated = existing.copy(subject = subject, status = status, description = desc)
+                        currentList[idx] = updated
+                        _sessionTodos.value = currentList
+                        ToolExecutionResult(
+                            JSONObject().put("status", "ok").put("updatedId", id).put("itemStatus", status).toString(),
+                            true,
+                        )
+                    }
+                }
+                "list" -> {
+                    val arr = org.json.JSONArray()
+                    currentList.forEach {
+                        arr.put(JSONObject().put("id", it.id).put("subject", it.subject).put("status", it.status).put("description", it.description))
+                    }
+                    ToolExecutionResult(JSONObject().put("status", "ok").put("todos", arr).toString(), true)
+                }
+                "delete" -> {
+                    val id = args.optInt("id", -1)
+                    val removed = currentList.removeAll { it.id == id }
+                    _sessionTodos.value = currentList
+                    ToolExecutionResult(JSONObject().put("status", "ok").put("deleted", removed).put("id", id).toString(), true)
+                }
+                "clear" -> {
+                    _sessionTodos.value = emptyList()
+                    ToolExecutionResult(JSONObject().put("status", "ok").put("cleared", true).toString(), true)
+                }
+                else -> ToolExecutionResult("Unknown todo action: $action", false)
+            }
+        } catch (e: Exception) {
+            ToolExecutionResult("Failed to execute todo tool: ${e.message}", false)
+        }
+    }
+
+    private fun executeTaskTool(argsJson: String): ToolExecutionResult {
+        return executeTodoTool(argsJson)
+    }
+
+    private fun executeGoalTool(argsJson: String): ToolExecutionResult {
+        return try {
+            val args = JSONObject(argsJson)
+            val action = args.optString("action", "get").lowercase()
+
+            when (action) {
+                "set" -> {
+                    val objective = args.optString("objective", "")
+                    val status = args.optString("status", "active")
+                    val summary = args.optString("summary", "")
+                    val goal = SessionGoal(objective = objective, status = status, summary = summary)
+                    _sessionGoal.value = goal
+                    ToolExecutionResult(JSONObject().put("status", "ok").put("goal", objective).put("goalStatus", status).toString(), true)
+                }
+                "update" -> {
+                    val current = _sessionGoal.value
+                    val objective = if (args.has("objective")) args.getString("objective") else current?.objective ?: ""
+                    val status = if (args.has("status")) args.getString("status") else current?.status ?: "active"
+                    val summary = if (args.has("summary")) args.getString("summary") else current?.summary ?: ""
+                    val updated = SessionGoal(objective = objective, status = status, summary = summary)
+                    _sessionGoal.value = updated
+                    ToolExecutionResult(JSONObject().put("status", "ok").put("goal", objective).put("goalStatus", status).put("summary", summary).toString(), true)
+                }
+                "get" -> {
+                    val current = _sessionGoal.value
+                    if (current == null) {
+                        ToolExecutionResult(JSONObject().put("goal", null).put("message", "No active goal").toString(), true)
+                    } else {
+                        ToolExecutionResult(JSONObject().put("objective", current.objective).put("status", current.status).put("summary", current.summary).toString(), true)
+                    }
+                }
+                "complete" -> {
+                    val current = _sessionGoal.value
+                    val summary = args.optString("summary", current?.summary ?: "Completed")
+                    val objective = current?.objective ?: args.optString("objective", "Goal")
+                    _sessionGoal.value = SessionGoal(objective = objective, status = "completed", summary = summary)
+                    ToolExecutionResult(JSONObject().put("status", "ok").put("completed", true).put("summary", summary).toString(), true)
+                }
+                else -> ToolExecutionResult("Unknown goal action: $action", false)
+            }
+        } catch (e: Exception) {
+            ToolExecutionResult("Failed to execute goal tool: ${e.message}", false)
         }
     }
 
@@ -10129,6 +10292,9 @@ Available tools:
 - file_edit: Edit existing files with exact string replacement (old_string → new_string). Preferred over file_write for modifications — always file_read first.
 - browser_use: Web browsing (navigate, screenshot, click, type, get_text, scroll, scroll_and_collect, get_readable, get_backbone, fetch, etc.). Starts with a desktop Chrome user agent. Use screenshot to see the page.
   当 browser_use 触达 Google 登录 / OAuth 页（accounts.google.com、signin.google.com、myaccount.google.com、oauth2.googleapis.com 等）或网页返回 "disallowed_useragent" / 403 包含 "browser is not secure" 字样时，**不要重试或尝试登录** — Google 永久禁止 in-app WebView 完成登录，重试只会浪费 turn。改为告诉用户："此页面需要在系统 Chrome 完成登录" 并给出可点击的 Markdown link [在 Chrome 中打开](https://accounts.google.com/...)。点该 link 时 app 会跳出 Custom Tab；用户在 Chrome 完成操作后，请他**把所需结果（邮件正文 / 文档摘要 / 表格数据）粘贴回 chat**，你再继续帮他处理。这是 Android 平台限制，不是 bug。${toolListMemoryBullets}
+- todo: Manage a structured todo list for tracking progress during complex multi-step work. Actions: create, update, list, delete, clear. Statuses: pending, in_progress, completed, cancelled. Use this tool autonomously to break down multi-step tasks and keep the user informed.
+- task: Manage structured tasks and subtasks for multi-step goals. Actions: create, update, list, delete, complete.
+- goal: Set or update the overarching objective / goal of the active session. Actions: set, update, get, complete.
 
 Shared directory /var/minis/ (bidirectional read/write between shell and app):
   /var/minis/attachments/ — Media files (images, audio, video). Display inline with ![desc](minis://attachments/filename).

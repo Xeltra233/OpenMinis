@@ -274,3 +274,18 @@ data class AssistantBlock(
 ) {
     val isText: Boolean get() = kind == "text"
 }
+
+/** Session-level Todo item created or managed by AI agent or user. */
+data class SessionTodo(
+    val id: Int,
+    val subject: String,
+    val status: String = "pending", // pending, in_progress, completed, cancelled
+    val description: String = "",
+)
+
+/** Session-level Goal object created or managed by AI agent or /goal slash command. */
+data class SessionGoal(
+    val objective: String,
+    val status: String = "active", // active, completed, blocked
+    val summary: String = "",
+)

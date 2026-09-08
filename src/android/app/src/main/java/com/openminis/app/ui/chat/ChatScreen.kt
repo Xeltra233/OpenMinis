@@ -5126,6 +5126,18 @@ fun ChatScreen(
                 // and an in-flow Row at the top with Arrangement.End is the
                 // cleanest equivalent.
                 val showMoveCapsule by viewModel.hasInjectedShareContent.collectAsState()
+                val sessionTodos by viewModel.sessionTodos.collectAsState()
+                val sessionGoal by viewModel.sessionGoal.collectAsState()
+                val todosCollapsed by viewModel.todosCollapsed.collectAsState()
+
+                // Collapsible Todo/Task and Goal Card — docked above the composer
+                CollapsibleTodoCard(
+                    todos = sessionTodos,
+                    goal = sessionGoal,
+                    isCollapsed = todosCollapsed,
+                    onToggleCollapse = { viewModel.toggleTodosCollapsed() },
+                )
+
                 // Mirrors iOS swipe-up-to-send: drag the input bar upward —
                 // if it holds text, a floating send-arrow + "Release to send"
                 // capsule track the finger; releasing past `swipeArmFraction`
