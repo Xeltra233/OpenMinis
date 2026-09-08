@@ -54,7 +54,8 @@ object ThinkingLevelCatalog {
      *  through to the supportsReasoning default. */
     fun declaredMaxLevel(modelId: String): ThinkingLevel? {
         val lid = modelId.lowercase()
-        return rules.firstOrNull { it.match(lid) }?.max
+        val stripped = com.openminis.app.data.model.ModelIdNormalizer.stripChannelAffixes(modelId).lowercase()
+        return rules.firstOrNull { it.match(stripped) || it.match(lid) }?.max
     }
 }
 

@@ -37,8 +37,10 @@ struct ThinkingRule: Equatable, Identifiable {
             case .allModels:
                 return true
             case .modelPattern(let pattern):
-                return Self.glob(pattern.lowercased().replacingOccurrences(of: ".", with: "-"),
-                                 matches: modelId.lowercased().replacingOccurrences(of: ".", with: "-"))
+                let p = pattern.lowercased().replacingOccurrences(of: ".", with: "-")
+                let raw = modelId.lowercased().replacingOccurrences(of: ".", with: "-")
+                let stripped = ModelIdNormalizer.stripChannelAffixes(modelId).lowercased().replacingOccurrences(of: ".", with: "-")
+                return Self.glob(p, matches: raw) || Self.glob(p, matches: stripped)
             }
         }
 

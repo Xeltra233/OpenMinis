@@ -28,7 +28,8 @@ enum ThinkingLevelCatalog {
 
     static func declaredMaxLevel(for modelId: String) -> ThinkingLevel? {
         let lid = modelId.lowercased()
-        return rules.first { $0.match(lid) }?.max
+        let stripped = ModelIdNormalizer.stripChannelAffixes(modelId).lowercased()
+        return rules.first { $0.match(stripped) || $0.match(lid) }?.max
     }
 
     private static func normalizedHasPrefix(_ id: String, _ prefix: String) -> Bool {

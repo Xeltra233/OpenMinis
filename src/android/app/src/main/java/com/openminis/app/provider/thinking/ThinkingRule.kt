@@ -67,10 +67,12 @@ data class ThinkingRule(
 
         fun matches(modelId: String): Boolean = when (this) {
             is AllModels -> true
-            is ModelPattern -> glob(
-                pattern.lowercase().replace('.', '-'),
-                modelId.lowercase().replace('.', '-'),
-            )
+            is ModelPattern -> {
+                val p = pattern.lowercase().replace('.', '-')
+                val raw = modelId.lowercase().replace('.', '-')
+                val stripped = com.openminis.app.data.model.ModelIdNormalizer.stripChannelAffixes(modelId).lowercase().replace('.', '-')
+                glob(p, raw) || glob(p, stripped)
+            }
         }
 
         companion object {

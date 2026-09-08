@@ -556,36 +556,27 @@ object ThinkingRuleResolver {
         // Lowercased for the same reason iOS lowercases the whole id: catalog and live
         // API spellings differ in case. The family checks above deliberately keep their
         // original raw-`modelId` form (Phase 2 §1 is a pure refactor).
-        val lowerId = modelId.lowercase()
+        val stripped = com.openminis.app.data.model.ModelIdNormalizer.stripChannelAffixes(modelId)
+        val lowerId = stripped.lowercase()
+        val rawLowerId = modelId.lowercase()
         val noThinkingSuffixes = listOf("-tts", "-image", "-embedding", "-vision")
-        if (noThinkingSuffixes.any { lowerId.endsWith(it) || lowerId.contains("$it-") }) {
+        if (noThinkingSuffixes.any { lowerId.endsWith(it) || lowerId.contains("$it-") || rawLowerId.endsWith(it) || rawLowerId.contains("$it-") }) {
             return null
         }
 
-        val isGemini3 = modelId.contains("gemini-3")
-        val is25Pro = modelId.contains("gemini-2.5-pro")
-        val is25Flash = modelId.contains("gemini-2.5-flash") && !modelId.contains("lite")
-        val is25FlashLite = modelId.contains("gemini-2.5-flash-lite")
+        val isGemini3 = lowerId.contains("gemini-3") || rawLowerId.contains("gemini-3")
+        val is25Pro = lowerId.contains("gemini-2.5-pro") || rawLowerId.contains("gemini-2.5-pro")
+        val is25Flash = (lowerId.contains("gemini-2.5-flash") || rawLowerId.contains("gemini-2.5-flash")) && !lowerId.contains("lite")
+        val is25FlashLite = lowerId.contains("gemini-2.5-flash-lite") || rawLowerId.contains("gemini-2.5-flash-lite")
+        val isGenericPro = (lowerId.contains("gemini") || rawLowerId.contains("gemini")) && (lowerId.contains("pro") || lowerId.contains("agent"))
+        val isGenericFlash = (lowerId.contains("gemini") || rawLowerId.contains("gemini")) && lowerId.contains("flash")
 
         if (is25FlashLite) return null
 
         return when {
             isGemini3 -> JSONObject().apply {
                 if (level == ThinkingLevel.OFF) {
-                    // 3.x cannot fully disable thinking; the floor is the weakest
-                    // level the model will accept.
-                    //
-                    // [T-gemini37-minimal-400] "minimal" is NOT universal across the
-                    // 3.x Flash family. Verified on-device (Pixel 4a, Gemini API):
-                    // gemini-3-flash-preview / 3.5-flash / 3.6-flash accept it, but
-                    // gemini-3.7-flash returns a hard
-                    //   400 "Thinking level MINIMAL is not supported for this model."
-                    // on EVERY request — 5/5 consecutive, "all fallbacks exhausted".
-                    // So with 思考 set to Off, 3.7 Flash was completely unusable, not
-                    // merely un-thinking. "low" is accepted by the whole family and is
-                    // the same floor 3.x Pro already used, so fall back to it for the
-                    // models that reject minimal rather than probing at runtime.
-                    val acceptsMinimal = modelId.contains("flash") && !rejectsMinimalLevel(lowerId)
+                    val acceptsMinimal = (lowerId.contains("flash") || rawLowerId.contains("flash")) && !rejectsMinimalLevel(lowerId)
                     put("thinkingLevel", if (acceptsMinimal) "minimal" else "low")
                 } else {
                     put(
@@ -611,7 +602,7 @@ object ThinkingRuleResolver {
                     put("includeThoughts", true)
                 }
             }
-            is25Pro -> JSONObject().apply {
+            is25Pro || isGenericPro -> JSONObject().apply {
                 put(
                     "thinkingBudget",
                     when (level) {
@@ -624,7 +615,7 @@ object ThinkingRuleResolver {
                 )
                 if (level.isEnabled) put("includeThoughts", true)
             }
-            is25Flash -> JSONObject().apply {
+            is25Flash || isGenericFlash -> JSONObject().apply {
                 put(
                     "thinkingBudget",
                     when (level) {
