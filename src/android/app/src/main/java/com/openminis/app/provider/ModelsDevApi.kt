@@ -3,6 +3,8 @@ package com.openminis.app.provider
 import android.content.Context
 import android.util.Log
 import com.openminis.app.data.model.LLMModel
+import com.openminis.app.data.model.ModelIdNormalizer
+import com.openminis.app.data.model.inferContextWindowTokens
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -89,69 +91,103 @@ object ModelsDevApi {
 
     // MARK: - Public: Enrich models with models.dev data
 
-    fun enrichModel(model: LLMModel): LLMModel {
-        val registry = loadRegistry() ?: return model
+    private fun findMatchingDevEntry(model: LLMModel, registry: Map<String, ProviderEntry>): ModelDevEntry? {
+        val cleanId = ModelIdNormalizer.stripChannelAffixes(model.id)
+        val cleanIdLower = cleanId.lowercase()
+        val rawIdLower = model.id.lowercase()
 
-        // Try mapped provider keys first
+        // 1. Try mapped provider keys with exact id or cleanId
         val keys = providerKeyMap[model.provider] ?: emptyList()
         for (key in keys) {
             val prov = registry[key] ?: continue
-            val devModel = prov.models[model.id] ?: continue
-            return applyDevData(model, devModel)
+            prov.models[model.id]?.let { return it }
+            prov.models[cleanId]?.let { return it }
         }
 
-        // Fallback: scan all providers for the model ID
-        for ((_, prov) in registry) {
-            val devModel = prov.models[model.id] ?: continue
-            return applyDevData(model, devModel)
+        // 2. Exact matches across all providers for cleanId or rawId
+        val exactCandidates = registry.keys.sorted().mapNotNull { key ->
+            registry[key]?.let { prov -> prov.models[model.id] ?: prov.models[cleanId] }
         }
+        val bestExact = exactCandidates.firstOrNull { !it.reasoningEffortValues.isNullOrEmpty() }
+            ?: exactCandidates.firstOrNull()
+        if (bestExact != null) return bestExact
 
-        return model
+        // 3. Substring / contains matching across all catalog entries:
+        // Find catalog models where catalogId appears inside cleanId/rawId or vice versa.
+        var bestMatch: ModelDevEntry? = null
+        var bestMatchLen = 0
+        var bestHasReasoningMetadata = false
+
+        for (provKey in registry.keys.sorted()) {
+            val prov = registry[provKey] ?: continue
+            for ((catId, devModel) in prov.models) {
+                val catIdLower = catId.lowercase()
+                if (catIdLower.length < 3) continue
+                val family = devModel.family?.lowercase().orEmpty()
+                if (family.contains("embedding") || family.contains("moderation")) continue
+
+                val isMatch = cleanIdLower.contains(catIdLower) || catIdLower.contains(cleanIdLower) ||
+                    rawIdLower.contains(catIdLower)
+                if (isMatch) {
+                    val hasMetadata = !devModel.reasoningEffortValues.isNullOrEmpty()
+                    if (bestMatch == null || (!bestHasReasoningMetadata && hasMetadata) ||
+                        (hasMetadata == bestHasReasoningMetadata && catIdLower.length > bestMatchLen)
+                    ) {
+                        bestMatch = devModel
+                        bestMatchLen = catIdLower.length
+                        bestHasReasoningMetadata = hasMetadata
+                    }
+                }
+            }
+        }
+        return bestMatch
+    }
+
+    fun enrichModel(model: LLMModel): LLMModel {
+        val registry = loadRegistry() ?: return applyDevData(model, null)
+        val best = findMatchingDevEntry(model, registry)
+        return applyDevData(model, best)
     }
 
     fun enrichModels(models: List<LLMModel>): List<LLMModel> {
-        val registry = loadRegistry() ?: return models
+        val registry = loadRegistry()
+        if (registry == null) {
+            return models.map { applyDevData(it, null) }
+        }
         return models.map { model ->
-            val keys = providerKeyMap[model.provider] ?: emptyList()
-            for (key in keys) {
-                val prov = registry[key] ?: continue
-                val devModel = prov.models[model.id] ?: continue
-                return@map applyDevData(model, devModel)
-            }
-            // Fallback scan: the same model id is published by many providers
-            // (e.g. `glm-5.2` appears under 19), and a custom relay's provider
-            // name matches none of them, so this scan is what third-party
-            // gateways actually hit.
-            //
-            // [T-reasoning-effort-data-driven] Map iteration order is not a
-            // stable contract, and these entries disagree on capabilities: 17 of
-            // the 19 `glm-5.2` entries declare effort tiers, 2 declare none.
-            // Sort by key for a stable pick and prefer an entry that carries
-            // reasoning metadata, so the richer declaration wins over a sparser
-            // duplicate. Mirrors iOS ModelsDevAPI.enrichModels.
-            val candidates = registry.keys.sorted().mapNotNull { registry[it]?.models?.get(model.id) }
-            val best = candidates.firstOrNull { !it.reasoningEffortValues.isNullOrEmpty() }
-                ?: candidates.firstOrNull()
-            if (best != null) return@map applyDevData(model, best)
-            model
+            val best = findMatchingDevEntry(model, registry)
+            applyDevData(model, best)
         }
     }
 
     // MARK: - Apply models.dev data
 
-    private fun applyDevData(model: LLMModel, devModel: ModelDevEntry): LLMModel {
+    private fun applyDevData(model: LLMModel, devModel: ModelDevEntry?): LLMModel {
+        val cleanId = ModelIdNormalizer.stripChannelAffixes(model.id)
+        val isVision = ModelIdNormalizer.isVisionModel(cleanId, model.displayName)
+        val isReasoning = ModelIdNormalizer.isReasoningModel(cleanId, model.displayName)
+
+        val baseInputs = devModel?.inputModalities ?: model.inputModalities
+        val enrichedInputs = if (isVision) {
+            val list = (baseInputs ?: listOf("text")).toMutableList()
+            if (!list.contains("image")) list.add("image")
+            list
+        } else {
+            baseInputs
+        }
+
+        val enrichedReasoning = devModel?.reasoning ?: model.supportsReasoning ?: if (isReasoning) true else null
+        val contextWindow = devModel?.contextWindow ?: model.contextWindow ?: inferContextWindowTokens(model)
+
         return model.copy(
-            contextWindow = devModel.contextWindow ?: model.contextWindow,
-            maxOutputTokens = devModel.maxOutputTokens ?: model.maxOutputTokens,
-            supportsReasoning = devModel.reasoning ?: model.supportsReasoning,
-            interleavedReasoningField = devModel.interleavedField ?: model.interleavedReasoningField,
-            inputModalities = devModel.inputModalities ?: model.inputModalities,
-            outputModalities = devModel.outputModalities ?: model.outputModalities,
-            reasoningEffortValues = devModel.reasoningEffortValues ?: model.reasoningEffortValues,
-            // [OpenMinis#163] Only carry the AFFIRMATIVE answer forward, so
-            // enriching against an entry the catalog is silent about cannot
-            // overwrite a prior real answer with a meaningless `false`.
-            declaresNoEffortTiers = if (devModel.declaresNoEffortTiers) true else model.declaresNoEffortTiers,
+            contextWindow = contextWindow,
+            maxOutputTokens = devModel?.maxOutputTokens ?: model.maxOutputTokens,
+            supportsReasoning = enrichedReasoning,
+            interleavedReasoningField = devModel?.interleavedField ?: model.interleavedReasoningField,
+            inputModalities = enrichedInputs,
+            outputModalities = devModel?.outputModalities ?: model.outputModalities,
+            reasoningEffortValues = devModel?.reasoningEffortValues ?: model.reasoningEffortValues,
+            declaresNoEffortTiers = if (devModel?.declaresNoEffortTiers == true) true else model.declaresNoEffortTiers,
         )
     }
 

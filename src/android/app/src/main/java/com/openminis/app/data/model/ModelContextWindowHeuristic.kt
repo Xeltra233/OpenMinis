@@ -14,7 +14,7 @@ package com.openminis.app.data.model
  */
 internal fun inferContextWindowTokens(model: LLMModel): Int {
     model.contextWindow?.takeIf { it > 0 }?.let { return it }
-    val idLower = model.id.lowercase()
+    val idLower = ModelIdNormalizer.stripChannelAffixes(model.id).lowercase()
 
     // 1M-class models — match before the generic claude-* / gemini-* fall-throughs.
     val millionClassPatterns = listOf(

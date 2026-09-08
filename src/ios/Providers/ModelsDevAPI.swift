@@ -172,7 +172,9 @@ enum ModelsDevAPI {
     private static func resolveDevModel(
         for model: LLMModel, in registry: [String: ModelsDevProvider]
     ) -> DevModelMatch? {
+        let stripped = ModelIdNormalizer.stripChannelAffixes(model.id)
         let wanted = normalizedModelKey(model.id)
+        let wantedStripped = normalizedModelKey(stripped)
 
         // Stage 1 is left as a direct scan on purpose: it only ever touches the
         // model's OWN provider (≤339 models for the widest, openrouter) and its
@@ -180,30 +182,31 @@ enum ModelsDevAPI {
         // nothing measurable while adding a second structure to keep coherent.
         for key in providerKeyMap[model.provider] ?? [] {
             guard let prov = registry[key] else { continue }
-            if let devModel = prov.models[model.id] {
+            if let devModel = prov.models[model.id] ?? prov.models[stripped] {
                 return DevModelMatch(model: devModel, authoritative: true)
             }
-            for id in prov.models.keys.sorted() where normalizedModelKey(id) == wanted {
-                if let devModel = prov.models[id] {
-                    return DevModelMatch(model: devModel, authoritative: true)
+            for id in prov.models.keys.sorted() {
+                let nId = normalizedModelKey(id)
+                if nId == wanted || nId == wantedStripped {
+                    if let devModel = prov.models[id] {
+                        return DevModelMatch(model: devModel, authoritative: true)
+                    }
                 }
             }
         }
 
-        // Stage 2 was the launch hot spot: the cross-provider fallback used to
-        // re-sort all 182 provider keys, re-sort each provider's model keys, and
-        // re-run `normalizedModelKey` over all 6,243 catalog ids — for EVERY
-        // model being enriched. Measured 1,418ms of a 8,971ms launch on an
-        // iPhone 11 (Time Profiler, 2026-08-11), of which 997ms was
-        // `normalizedModelKey` alone recomputing a value that cannot change
-        // while the registry is unchanged.
-        //
-        // The scan is now precomputed once into `stage2Index` and reduced to a
-        // single dictionary lookup. The RESOLUTION SEMANTICS ARE UNCHANGED: the
-        // index stores the winner picked by exactly the vote below, evaluated in
-        // exactly the old scan order (see `buildStage2Index`).
         guard let index = stage2Index(for: registry) else { return nil }
-        return index[wanted]
+        if let match = index[wanted] ?? index[wantedStripped] {
+            return match
+        }
+        // Substring / contains fallback for channel-wrapped IDs
+        for (key, match) in index {
+            if key.count < 3 { continue }
+            if wantedStripped.contains(key) || key.contains(wantedStripped) || wanted.contains(key) {
+                return match
+            }
+        }
+        return nil
     }
 
     /// The stage-2 winner for every normalized id in the catalog.
@@ -287,13 +290,20 @@ enum ModelsDevAPI {
     static func enrichModels(_ models: [LLMModel]) -> [LLMModel] {
         guard let registry = loadRegistry() else { return models }
         return models.map { model in
-            // [T-modelsdev-id-normalization] Same resolver as the single-model
-            // path: own provider → exact id → normalized id, each stage picking
-            // deterministically and preferring an entry that declares effort
-            // tiers. The fallback scan is what third-party gateways actually
-            // hit, since a relay's provider name matches no catalog key.
-            guard let match = resolveDevModel(for: model, in: registry) else { return model }
-            return applyDevData(to: model, from: match.model, authoritative: match.authoritative)
+            let match = resolveDevModel(for: model, in: registry)
+            if let match {
+                return applyDevData(to: model, from: match.model, authoritative: match.authoritative)
+            }
+            var fallback = model
+            let isVision = ModelIdNormalizer.isVisionModel(model.id, model.displayName)
+            let isReasoning = ModelIdNormalizer.isReasoningModel(model.id, model.displayName)
+            if isVision {
+                fallback.modalityOverride = (fallback.modalityOverride ?? [.textInput, .textOutput]).union([.imageInput])
+            }
+            if isReasoning && fallback.supportsReasoning == nil {
+                fallback.supportsReasoning = true
+            }
+            return fallback
         }
     }
 
@@ -303,12 +313,14 @@ enum ModelsDevAPI {
         to model: LLMModel, from devModel: ModelsDevModel, authoritative: Bool = false
     ) -> LLMModel {
         var result = model
+        let isVision = ModelIdNormalizer.isVisionModel(model.id, model.displayName)
+        let isReasoning = ModelIdNormalizer.isReasoningModel(model.id, model.displayName)
 
         // Modality: models.dev is the source of truth — always apply when available.
-        // This overrides both provider-level defaults and API-parsed modalities,
-        // since models.dev has accurate per-model data (e.g. pdf support distinctions).
         if let devModality = devModel.resolvedModality {
-            result.modalityOverride = devModality
+            result.modalityOverride = isVision ? devModality.union([.imageInput]) : devModality
+        } else if isVision {
+            result.modalityOverride = [.textInput, .textOutput, .imageInput]
         }
 
         // Context window: models.dev is the source of truth
@@ -324,8 +336,9 @@ enum ModelsDevAPI {
         // Reasoning capability
         if let reasoning = devModel.reasoning {
             result.supportsReasoning = reasoning
+        } else if isReasoning && result.supportsReasoning == nil {
+            result.supportsReasoning = true
         }
-
         // Interleaved reasoning field (e.g. "reasoning_content" for DeepSeek/Kimi)
         if let field = devModel.interleaved?.field {
             result.interleavedReasoningField = field
