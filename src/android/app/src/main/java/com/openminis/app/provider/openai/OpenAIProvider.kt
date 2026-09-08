@@ -613,7 +613,7 @@ class OpenAIProvider private constructor(
             temperature = temperature,
             imageParts = imageParts,
             tools = tools,
-            thinkingLevel = thinkingLevel,
+            thinkingLevel = clampThinkingLevel(thinkingLevel),
             stream = false,
         ).collect { chunk ->
             when (chunk) {

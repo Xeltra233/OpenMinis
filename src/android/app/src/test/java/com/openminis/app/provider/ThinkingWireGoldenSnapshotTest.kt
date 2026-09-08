@@ -235,8 +235,8 @@ openai-o3/LOW -> {reasoning_effort:"low"}
 openai-o3/MEDIUM -> {reasoning_effort:"medium"}
 openai-o3/HIGH -> {reasoning_effort:"high"}
 openai-o3/XHIGH -> {reasoning_effort:"xhigh"}
-openai-o3/MAX -> {reasoning_effort:"xhigh"}
-openai-o3/ULTRA -> {reasoning_effort:"xhigh"}
+openai-o3/MAX -> {reasoning_effort:"max"}
+openai-o3/ULTRA -> {reasoning_effort:"max"}
 openai-gpt4o-nonreasoning/OFF -> {}
 openai-gpt4o-nonreasoning/LOW -> {}
 openai-gpt4o-nonreasoning/MEDIUM -> {}
@@ -319,8 +319,8 @@ generic-unknown/LOW -> {reasoning_effort:"low"}
 generic-unknown/MEDIUM -> {reasoning_effort:"medium"}
 generic-unknown/HIGH -> {reasoning_effort:"high"}
 generic-unknown/XHIGH -> {reasoning_effort:"xhigh"}
-generic-unknown/MAX -> {reasoning_effort:"xhigh"}
-generic-unknown/ULTRA -> {reasoning_effort:"xhigh"}
+generic-unknown/MAX -> {reasoning_effort:"max"}
+generic-unknown/ULTRA -> {reasoning_effort:"max"}
 sparse-high-max/OFF -> {}
 sparse-high-max/LOW -> {reasoning_effort:"high"}
 sparse-high-max/MEDIUM -> {reasoning_effort:"high"}
@@ -368,8 +368,8 @@ qwen-on-openrouter/LOW -> {reasoning:{effort:"low"}}
 qwen-on-openrouter/MEDIUM -> {reasoning:{effort:"medium"}}
 qwen-on-openrouter/HIGH -> {reasoning:{effort:"high"}}
 qwen-on-openrouter/XHIGH -> {reasoning:{effort:"xhigh"}}
-qwen-on-openrouter/MAX -> {reasoning:{effort:"xhigh"}}
-qwen-on-openrouter/ULTRA -> {reasoning:{effort:"xhigh"}}
+qwen-on-openrouter/MAX -> {reasoning:{effort:"max"}}
+qwen-on-openrouter/ULTRA -> {reasoning:{effort:"max"}}
 deepseek-v4-on-openrouter/OFF -> {}
 deepseek-v4-on-openrouter/LOW -> {reasoning:{effort:"low"}}
 deepseek-v4-on-openrouter/MEDIUM -> {reasoning:{effort:"medium"}}

@@ -694,8 +694,8 @@ class ThinkingRulesRegressionTest {
     @Test
     fun `undeclared model still uses the id-rule ceiling`() {
         assertEquals(
-            "no declaration → hardcoded default is still XHIGH",
-            ThinkingLevel.XHIGH,
+            "no declaration → hardcoded default is now ULTRA",
+            ThinkingLevel.ULTRA,
             model("some-unknown-reasoner").catalogMaxThinkingLevel,
         )
         assertEquals(
