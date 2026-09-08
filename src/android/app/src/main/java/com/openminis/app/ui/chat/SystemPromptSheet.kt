@@ -41,8 +41,12 @@ fun SystemPromptSheet(
     onSave: (systemMd: String, appendSystemMd: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var systemText by remember { mutableStateOf(systemMdContent) }
-    var appendText by remember { mutableStateOf(appendSystemMdContent) }
+    var systemText by remember(systemMdContent, defaultPrompt) {
+        mutableStateOf(if (systemMdContent.isNotBlank()) systemMdContent else defaultPrompt)
+    }
+    var appendText by remember(appendSystemMdContent) {
+        mutableStateOf(appendSystemMdContent)
+    }
     var selectedTab by remember { mutableIntStateOf(0) } // 0: SYSTEM.md, 1: APPEND.SYSTEM.md
 
     StandardChatSheet(
@@ -100,22 +104,25 @@ fun SystemPromptSheet(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text(
-                                text = "系统提示词",
-                                fontSize = 12.5.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Row {
-                                if (systemText.isNotEmpty()) {
-                                    TextButton(onClick = { systemText = "" }) {
-                                        Text("清空 (使用内置)", fontSize = 12.sp)
-                                    }
-                                    Spacer(modifier = Modifier.width(4.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "系统提示词",
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                val isCustomized = systemText.trim() != defaultPrompt.trim()
+                                if (isCustomized) {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "(已自定义)",
+                                        fontSize = 11.5.sp,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
                                 }
-                                TextButton(onClick = { systemText = defaultPrompt }) {
-                                    Text("填入内置提示词", fontSize = 12.sp)
-                                }
+                            }
+                            TextButton(onClick = { systemText = defaultPrompt }) {
+                                Text("恢复默认", fontSize = 12.sp)
                             }
                         }
 
@@ -127,7 +134,7 @@ fun SystemPromptSheet(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(340.dp),
-                            placeholder = { Text("留空将直接使用软件内置默认提示词；输入内容后将作为完全自定义的系统提示词生效。") },
+                            placeholder = { Text("在此查看或编辑系统提示词。点击右上角“恢复默认”可重置为软件内置提示词。") },
                             shape = RoundedCornerShape(10.dp),
                             textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
                         )
@@ -194,7 +201,8 @@ fun SystemPromptSheet(
                 }
                 Spacer(modifier = Modifier.width(12.dp))
                 Button(onClick = {
-                    onSave(systemText.trim(), appendText.trim())
+                    val finalSys = if (systemText.trim() == defaultPrompt.trim()) "" else systemText.trim()
+                    onSave(finalSys, appendText.trim())
                 }) {
                     Text("保存")
                 }

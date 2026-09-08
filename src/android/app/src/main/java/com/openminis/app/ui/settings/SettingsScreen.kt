@@ -363,7 +363,18 @@ Available tools:
 - shell_execute: Run any shell command. Each invocation is an isolated process with stdout/stderr captured.
 - file_read: Read file contents (faster than cat).
 - file_write: Create new files or overwrite existing files (faster than echo/tee).
-"""
+- file_edit: Edit existing files with exact string replacement (old_string → new_string). Preferred over file_write for modifications — always file_read first.
+- browser_use: Web browsing (navigate, screenshot, click, type, get_text, scroll, scroll_and_collect, get_readable, get_backbone, fetch, etc.).
+- todo: Manage a structured todo list for tracking progress during complex multi-step work. Actions: create, update, list, delete, clear.
+- task: Manage structured tasks and subtasks for multi-step goals. Actions: create, update, list, delete, complete.
+- goal: Set or update the overarching objective / goal of the active session. Actions: set, update, get, complete.
+
+Shared directory /var/minis/ (bidirectional read/write between shell and app):
+  /var/minis/attachments/ — Media files (images, audio, video). Display inline with ![desc](minis://attachments/filename).
+  /var/minis/workspace/   — Working files (scripts, data, configs). Link with [name](minis://workspace/filename).
+  /var/minis/offloads/    — Auto-saved large outputs. Read with file_read.
+  /var/minis/browser/     — Browser screenshots and extracts.
+  /var/minis/shared/      — Cross-session shared storage for artifacts and documents."""
         }
         SystemPromptSheet(
             systemMdContent = currentSys,
