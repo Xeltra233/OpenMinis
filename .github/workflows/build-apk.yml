@@ -87,6 +87,13 @@ jobs:
           chmod +x src/android/gradlew
           chmod +x scripts/*.sh
 
+      - name: Verify Android native libraries
+        run: |
+          if [ ! -f "src/android/app/libs/rclone.aar" ]; then
+            echo "::error::src/android/app/libs/rclone.aar is missing!"
+            exit 1
+          fi
+          echo "Found rclone.aar: $(ls -lh src/android/app/libs/rclone.aar)"
       - name: Build Android APK (Release & Debug)
         run: |
           cd src/android
@@ -126,9 +133,11 @@ jobs:
             ### Included Features:
             - **Max Thinking Depth ULTRA**: Support reasoning depth up to ULTRA across providers.
             - **Channel Affix Stripping & Multimodal Detection**: Automatically recognize core model IDs (e.g. `[Antigravity渠道] gemini-3.8-flash-high`, `[Antigravity渠道] gemini-pro-agent`) to enable vision/image input and deep thinking.
-            - **AI Task Management**: AI Agent tools (`todo`, `task`, `goal`) for autonomous task and goal tracking.
+            - **AI Task Management**: AI Agent tools (`todo`, `task`, `goal`) for autonomous task and goal tracking with session file persistence.
             - **Collapsible Task UI**: Compact, non-intrusive collapsible Todo/Task card on mobile screens.
             - **Agent Runtime System Prompt Editor**: Edit `SYSTEM.md` and `APPEND_SYSTEM.md` directly from chat settings.
+            - **SSH Server Management**: Manage remote SSH hosts with credentials and provide `ssh_servers` AI tool for autonomous server lookups.
+            - **UI Sheets & Complete Chinese Localization**: Fixes for sheets presentation and full Chinese localization.
             
             ### Download APK:
             - `OpenMinis-${{ steps.version_step.outputs.version }}-release.apk`: Production release APK

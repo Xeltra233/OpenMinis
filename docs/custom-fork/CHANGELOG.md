@@ -93,3 +93,68 @@
   - `.github/workflows/build-apk.yml`
     - 自动提取 Git Tag 或 `build.gradle.kts` 中的 `versionName`；
     - 构建发布 Android Release/Debug APK，并在 GitHub Releases 自动打上版本号。
+
+---
+
+## 6. 会话任务与目标本地文件持久化 (Session Goals & Todos Persistence)
+- **背景与目标**：
+  在之前的实现中，会话内的 Goal 与 Todo 任务仅保存在内存 `StateFlow` 中。用户退出聊天界面、重启应用或在不同会话间切换时，任务列表会丢失或出现交叉污染。本次二开实现了每个会话独立的本地 JSON 文件持久化与生命周期自动加载/清理。
+- **存储设计**：
+  - 存储目录：应用私有数据目录下的 `sessions/`。
+  - 文件命名：
+    - `session_{sessionId}_goals.json`：存储会话当前的 `SessionGoal`（目标说明、已完成/失败状态、更新时间）。
+    - `session_{id}_todos.json`：存储会话的 `List<SessionTodo>`（各项任务的 ID、标题、详情、状态 `pending/in_progress/completed/cancelled`）。
+- **修改文件列表**：
+  1. `src/android/app/src/main/java/com/openminis/app/ui/chat/ChatViewModel.kt`
+     - 在 `loadSession(sessionId)` 时同步调用 `loadSessionTasks(sessionId)` 从对应 JSON 文件恢复 Goal 和 Todos；若文件不存在则重置为空，杜绝会话间串扰；
+     - 在 `executeTodoTool`、`executeTaskTool`、`executeGoalTool` 每次状态流更新后，触发 `saveSessionTasks(sessionId)` 原子写入磁盘；
+     - 增加清晰的 JSON 序列化/反序列化及异常防护机制。
+  2. `src/android/app/src/test/java/com/openminis/app/ui/chat/AgentTodoTaskGoalTest.kt`
+     - 增加持久化数据往返与解析单元测试验证。
+
+---
+
+## 7. SSH 服务器配置管理与 AI 查验工具 (SSH Server Management & AI Agent Tool)
+- **背景与目标**：
+  为便于用户在手机端集中管理远端 Linux 服务器、配合 AI Agent 自动获取运维环境信息，二开实现了完整的 SSH 服务器管理模块，并向 AI 暴露了专属只读工具。
+- **新增模块**：
+  - `src/android/app/src/main/java/com/openminis/app/data/model/SSHServerModel.kt`
+    - 数据模型 `SSHServer`（包含 `id`, `name`, `host`, `port`, `username`, `authType` (PASSWORD / PRIVATE_KEY), `password`, `privateKey`, `passphrase`, `group`, `tags`, `notes`, `createdAt`, `updatedAt`）。
+  - `src/android/app/src/main/java/com/openminis/app/data/repository/SSHServerRepository.kt`
+    - 仓库层，支持 CRUD、分组检索、敏感密码/私钥的本地受保护存储、以及连接连通性测试（Socket / SSH Banner 检测）。
+  - `src/android/app/src/main/java/com/openminis/app/ui/settings/SSHServersScreen.kt`
+    - 设置页面中的专用管理界面，支持服务器列表展示、按组过滤、新增/编辑/删除弹窗、表单校验以及一键“测试连接”功能。
+- **AI Agent 工具集成**：
+  - `src/android/app/src/main/java/com/openminis/app/tools/AgentTools.kt`
+    - 注册 `ssh_servers` 工具给 AI Agent；
+    - AI 可自主调用该工具列出用户已配置的服务器列表（包含主机、端口、用户名、分组与备注，密码与私钥严格脱敏屏蔽），辅助 Agent 自动决定远程运维的目标机器。
+  - `src/android/app/src/main/java/com/openminis/app/ui/navigation/AppNavigation.kt` & `SettingsScreen.kt`
+    - 设置主菜单新增“SSH 服务器”入口及路由。
+
+---
+
+## 8. UI Sheets 弹窗规范与全量中文本地化 (UI Sheets Presentation & Full Localization)
+- **背景与目标**：
+  1. 系统提示词 Sheet 和 Todo 卡片折叠交互在部分高刷新率或分屏 Android 设备上存在手势冲突；
+  2. 新增的设置项、SSH 管理和任务卡片需要完整的简繁体中文支持。
+- **修改文件列表**：
+  1. `src/android/app/src/main/java/com/openminis/app/ui/chat/ChatScreen.kt`
+     - 优化 `SystemPromptSheet` 的状态悬挂与遮罩层逻辑，修复退出重建时的闪烁。
+  2. `src/android/app/src/main/java/com/openminis/app/ui/chat/CollapsibleTodoCard.kt`
+     - 优化卡片布局层级，确保在小屏设备上不遮挡底部输入框及快捷工具栏。
+  3. `src/android/app/src/main/res/values/strings.xml` & `values-zh/strings.xml` & `values-zh-rTW/strings.xml`
+     - 补充 `ssh_servers_title`、`add_ssh_server`、`test_connection`、`system_prompt_title`、`todo_tasks_title` 等多项国际化资源字符串，达到全量中文界面。
+
+---
+
+## 9. 依赖分发与 Release 构建修复 (rclone.aar Packaging & Release Alignment)
+- **背景与目标**：
+  在 CI/CD 和常规开发者环境中，构建 Android APK 需依赖 `:app:mergeReleaseNativeLibs` 所需的 `rclone.aar`。原上游将 `src/android/app/libs/rclone.aar` 放入 `.gitignore`，导致 GitHub Actions 在全新拉取代码编译 Release APK 时报 `Could not find :rclone:` 致命错误。
+- **修改与优化**：
+  1. `.gitignore`
+     - 取消对 `src/android/app/libs/rclone.aar` 的忽略，将其作为预编译二进制归档入库，使拉取仓库后即可直接构建，无需本地配置 Go/gomobile 交叉编译工具链。
+  2. `.github/workflows/build-apk.yml`
+     - 增加 `Verify Android native libraries` 步骤，在执行 Gradle 编译前校验 `rclone.aar` 完整性；
+     - 更新 Release 发布说明，自动囊括所有二次开发核心特性。
+  3. `README.md` & `UpdateChecker.kt`
+     - 移除 App Store 标识，将下载与应用内升级检查全面重定向至 `https://github.com/Xeltra233/OpenMinis/releases`。

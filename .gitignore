@@ -142,10 +142,8 @@ deps/lame-3.100/**/*.lai
 deps/lame-3.100/**/.libs/
 deps/lame-3.100/**/.deps/
 
-# rclone.aar is a build artifact of deps/build_rclone_android.sh (~15MB),
-# not a vendored binary — same treatment as the iOS Rclone.xcframework it is
-# built alongside (deps/build_rclone_ios.sh).
-src/android/app/libs/rclone.aar
+# rclone.aar is required for Android build (:app:mergeReleaseNativeLibs / settings.gradle.kts flatDir).
+# Tracked in git so builds succeed in CI and standard environments without Go toolchain.
 src/android/app/provider-customization.properties
 
 # Local goal workspaces and screenshots

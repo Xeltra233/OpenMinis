@@ -1,7 +1,7 @@
 # OpenMinis
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-[![Platforms](https://img.shields.io/badge/Platforms-iOS%20%7C%20Android-lightgrey.svg)](#beta-programme)
+[![Platforms](https://img.shields.io/badge/Platforms-iOS%20%7C%20Android-lightgrey.svg)](#releases)
 
 **Your private, on-device AI agent.**
 
@@ -19,11 +19,7 @@ what converge on the product.**
 
 Official website: **[openminis.app](https://openminis.app)**
 
-<a href="https://apps.apple.com/app/id6759188481">
-  <img alt="Download on the App Store" height="48" src="assets/badge-appstore.svg" />
-</a>
-&nbsp;
-<a href="https://github.com/OpenMinis/OpenMinis/releases">
+<a href="https://github.com/Xeltra233/OpenMinis/releases">
   <img alt="Get the APK on GitHub" height="48" src="assets/badge-android.svg" />
 </a>
 
@@ -103,15 +99,9 @@ media downloads, health analysis, cloud APIs and more.
 
 ---
 
-## Beta programme
+## Releases
 
-App Store releases can lag behind: every update waits on review, and we hold
-builds back when stability warrants it. The TestFlight build is where fixes
-and new features land first.
-
-**→ [Join the TestFlight beta](https://testflight.apple.com/join/3BdkA5c3)**
-
-On Android, the [releases page](https://github.com/OpenMinis/OpenMinis/releases)
+On Android, the [releases page](https://github.com/Xeltra233/OpenMinis/releases)
 always carries the latest APK.
 
 ---

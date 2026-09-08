@@ -44,6 +44,11 @@ git merge upstream/main
    - 确保 `buildSystemPrompt` 中加载 `SYSTEM.md` 与 `APPEND_SYSTEM.md` 的逻辑保留。
 4. **可折叠卡片** (`ChatScreen.kt` / `CollapsibleTodoCard.kt`)：
    - 保留输入框上方的 `CollapsibleTodoCard` 挂载。
+5. **SSH 服务器与数据持久化** (`SSHServerRepository.kt` / `SSHServersScreen.kt` / `ChatViewModel.kt`)：
+   - 保留 `SSHServerModel`、`SSHServerRepository` 与设置界面的路由；
+   - 保留 `session_{id}_todos.json` 与 `session_{id}_goals.json` 的持久化逻辑。
+6. **rclone 依赖与 Release 流程** (`src/android/app/libs/rclone.aar` / `.github/workflows/build-apk.yml`)：
+   - 保持 `rclone.aar` 在 Git 中追踪，避免 CI 构建报找不到 `:rclone:`。
 
 ---
 
@@ -59,6 +64,7 @@ cd src/android
 - `ModelIdNormalizerTest`
 - `NativeVisionModalityTest`
 - `AgentTodoTaskGoalTest`
+- `SSHServerModelTest`
 - `OpenAIProviderTest`
 
 ### 步骤 B：本地编译 APK
