@@ -43,6 +43,7 @@ object AgentTools {
         add(todoDefinition())
         add(taskDefinition())
         add(goalDefinition())
+        add(sshServerDefinition())
     }
 
     // Aligned with iOS AIChatViewModel.swift:4982-4993
@@ -188,5 +189,29 @@ object AgentTools {
         ),
         required = listOf("action"),
         propertyOrdering = listOf("tool_title", "action", "objective", "status", "summary"),
+    )
+
+    private fun sshServerDefinition(): AgentToolDefinition = AgentToolDefinition(
+        name = "ssh_server",
+        description = "Manage, read, and save SSH servers and connection configurations. " +
+            "Actions: list (list all saved servers), get (get details for a specific server by id or name), " +
+            "save (create or update an SSH server), delete (delete a server by id).",
+        parameters = mapOf(
+            "tool_title" to AgentToolParam("string", "A concise 5-10 word summary of what this tool call does, shown to the user (e.g. 'List saved SSH servers', 'Save new VPS connection'). Use the same language as the user."),
+            "action" to AgentToolParam("string", "Action to perform: list, get, save, delete", enumValues = listOf("list", "get", "save", "delete")),
+            "id" to AgentToolParam("string", "Server ID (required for delete or update; optional for get)"),
+            "name" to AgentToolParam("string", "Server name or label (e.g. 'Production VPS', 'Dev Server')"),
+            "host" to AgentToolParam("string", "Server hostname or IP address (e.g. '192.168.1.100', 'vps.example.com')"),
+            "port" to AgentToolParam("integer", "SSH port (default: 22)"),
+            "username" to AgentToolParam("string", "SSH username (default: 'root')"),
+            "auth_type" to AgentToolParam("string", "Authentication method: password or private_key", enumValues = listOf("password", "private_key")),
+            "password" to AgentToolParam("string", "Password for password authentication"),
+            "private_key" to AgentToolParam("string", "Private key content in PEM/OpenSSH format"),
+            "passphrase" to AgentToolParam("string", "Passphrase for encrypted private key (optional)"),
+            "key_type" to AgentToolParam("string", "Key type: AUTO, ED25519, RSA, ECDSA", enumValues = listOf("AUTO", "ED25519", "RSA", "ECDSA")),
+            "note" to AgentToolParam("string", "Optional notes or description for this server"),
+        ),
+        required = listOf("action"),
+        propertyOrdering = listOf("tool_title", "action", "id", "name", "host", "port", "username", "auth_type", "password", "private_key", "passphrase", "key_type", "note"),
     )
 }

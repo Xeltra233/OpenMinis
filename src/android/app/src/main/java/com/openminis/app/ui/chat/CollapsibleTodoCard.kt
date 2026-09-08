@@ -58,7 +58,7 @@ fun CollapsibleTodoCard(
     val totalCount = todos.size
 
     Surface(
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f),
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
@@ -66,7 +66,7 @@ fun CollapsibleTodoCard(
         ),
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp),
+            .padding(bottom = 6.dp),
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             // Header: Always visible, clickable to fold/unfold

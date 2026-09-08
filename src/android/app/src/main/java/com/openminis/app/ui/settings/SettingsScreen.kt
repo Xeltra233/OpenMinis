@@ -27,6 +27,7 @@ import androidx.compose.material.icons.outlined.BatteryFull
 import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.Feedback
@@ -107,6 +108,7 @@ fun SettingsScreen(
     // About row below still has a TODO onClick in HEAD; future settings-bucket
     // work will wire this through.
     onAboutClick: () -> Unit = {},
+    onSSHServersClick: () -> Unit = {},
 ) {
     val context = LocalContext.current
     var showFeedbackSheet by remember { mutableStateOf(false) }
@@ -246,6 +248,18 @@ fun SettingsScreen(
                     title = stringResource(R.string.settings_backup_restore),
                     subtitle = stringResource(R.string.settings_backup_restore_subtitle),
                     onClick = onBackupClick,
+                    showDivider = false,
+                )
+            }
+
+            // -- Remote Connections --
+            SettingsSection(title = stringResource(R.string.settings_section_remote_servers)) {
+                SettingsItem(
+                    icon = Icons.Outlined.Dns,
+                    iconColor = Color(0xFF007AFF),
+                    title = stringResource(R.string.settings_ssh_servers),
+                    subtitle = stringResource(R.string.settings_ssh_servers_subtitle),
+                    onClick = onSSHServersClick,
                     showDivider = false,
                 )
             }

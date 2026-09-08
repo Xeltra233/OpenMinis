@@ -1938,4 +1938,28 @@
     <!-- [T-android-compact-progress] Live status while a compaction runs. -->
     <string name="compact_progress">Compacting… %1$d s elapsed</string>
     <string name="compact_progress_split">Compacting… %1$d s · summarizing in segments (%2$d/%3$d)</string>
+    <string name="settings_section_remote_servers">Remote Servers</string>
+    <string name="settings_ssh_servers">SSH Servers</string>
+    <string name="settings_ssh_servers_subtitle">Save and manage SSH servers with passwords or private keys</string>
+    <string name="ssh_servers_title">SSH Servers</string>
+    <string name="ssh_servers_empty_title">No SSH Servers Saved</string>
+    <string name="ssh_servers_empty_desc">Add SSH servers to manage remote environments or allow AI tools to access and automate remote tasks.</string>
+    <string name="ssh_servers_add">Add Server</string>
+    <string name="ssh_servers_edit">Edit Server</string>
+    <string name="ssh_servers_delete">Delete</string>
+    <string name="ssh_servers_delete_confirm">Delete SSH Server “%1$s”?</string>
+    <string name="ssh_servers_name">Server Name</string>
+    <string name="ssh_servers_host">Host / IP</string>
+    <string name="ssh_servers_port">Port</string>
+    <string name="ssh_servers_username">Username</string>
+    <string name="ssh_servers_auth_type">Authentication Method</string>
+    <string name="ssh_servers_auth_password">Password</string>
+    <string name="ssh_servers_auth_key">Private Key</string>
+    <string name="ssh_servers_password">Password</string>
+    <string name="ssh_servers_key_type">Key Type</string>
+    <string name="ssh_servers_private_key">Private Key Content</string>
+    <string name="ssh_servers_passphrase">Passphrase (optional)</string>
+    <string name="ssh_servers_note">Notes (optional)</string>
+    <string name="ssh_servers_save">Save</string>
+    <string name="ssh_servers_cancel">Cancel</string>
 </resources>

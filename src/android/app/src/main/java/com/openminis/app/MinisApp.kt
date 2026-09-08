@@ -25,6 +25,7 @@ import com.openminis.app.data.repository.MemoryRepository
 import com.openminis.app.data.repository.ProviderRepository
 import com.openminis.app.data.repository.WebAppShortcutRepository
 import com.openminis.app.data.repository.MCPRepository
+import com.openminis.app.data.repository.SSHServerRepository
 import com.openminis.app.data.repository.SkillRepository
 import com.openminis.app.notification.BackgroundTaskNotifier
 import com.openminis.app.logging.AppLogger
@@ -151,6 +152,8 @@ class MinisApp : Application(), ImageLoaderFactory {
     lateinit var providerRepository: ProviderRepository
         private set
     lateinit var envVarRepository: EnvVarRepository
+        private set
+    lateinit var sshServerRepository: SSHServerRepository
         private set
     lateinit var skillRepository: SkillRepository
         private set
@@ -424,6 +427,7 @@ class MinisApp : Application(), ImageLoaderFactory {
         chatRepository = ChatRepository(database.chatDao())
         providerRepository = ProviderRepository(this)
         envVarRepository = EnvVarRepository(this)
+        sshServerRepository = SSHServerRepository(this)
         // [T-android-safemode-lateinit-crash-147] SkillRepository parses
         // third-party content (skills imported from external hubs), which
         // makes it the realistic source of a throw in this block. Its own

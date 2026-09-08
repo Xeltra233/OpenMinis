@@ -710,4 +710,10 @@ class ThinkingRulesRegressionTest {
                 .catalogMaxThinkingLevel,
         )
     }
+
+    @Test
+    fun `channel-prefixed gemini model resolves correctly`() {
+        val m = model("[Antigravity渠道] gemini-3.8-flash-high")
+        assertEquals(ThinkingLevel.ULTRA, m.catalogMaxThinkingLevel)
+    }
 }

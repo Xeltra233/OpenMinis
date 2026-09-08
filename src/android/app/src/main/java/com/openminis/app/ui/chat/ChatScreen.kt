@@ -7220,8 +7220,17 @@ private fun ThinkingLevelSheet(
         listOf(com.openminis.app.data.model.ThinkingLevel.OFF) +
             availableLevels.filter { it != com.openminis.app.data.model.ThinkingLevel.OFF }
     }
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = 12.dp)
+        ) {
             Text(
                 text = stringResource(R.string.thinking_level_sheet_title),
                 fontSize = 16.sp,

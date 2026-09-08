@@ -589,6 +589,7 @@ class MainActivity : ComponentActivity() {
                     chatRepository = app.chatRepository,
                     providerRepository = app.providerRepository,
                     envVarRepository = app.envVarRepository,
+                    sshServerRepository = app.sshServerRepository,
                     skillRepository = app.skillRepository,
                     mcpRepository = app.mcpRepository,
                     memoryRepository = app.memoryRepository,

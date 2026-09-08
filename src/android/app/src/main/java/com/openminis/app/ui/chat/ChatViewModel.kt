@@ -902,7 +902,84 @@ class ChatViewModel(
     }
 
     fun setSessionGoal(objective: String) {
-        _sessionGoal.value = SessionGoal(objective = objective, status = "active")
+        val goal = SessionGoal(objective = objective, status = "active")
+        _sessionGoal.value = goal
+        saveGoalToDisk(sessionId, goal)
+    }
+
+    internal fun loadTodosAndGoalFromDisk(sid: String) {
+        try {
+            val base = java.io.File(context.filesDir, "minis-sessions/$sid")
+            val todosFile = java.io.File(base, "todos.json")
+            if (todosFile.exists()) {
+                val content = todosFile.readText()
+                val array = org.json.JSONArray(content)
+                val list = mutableListOf<SessionTodo>()
+                for (i in 0 until array.length()) {
+                    val o = array.optJSONObject(i) ?: continue
+                    val id = o.optInt("id", i + 1)
+                    val subject = o.optString("subject", "")
+                    val status = o.optString("status", "pending")
+                    val description = o.optString("description", "")
+                    if (subject.isNotEmpty()) {
+                        list.add(SessionTodo(id = id, subject = subject, status = status, description = description))
+                    }
+                }
+                _sessionTodos.value = list
+            }
+
+            val goalFile = java.io.File(base, "goal.json")
+            if (goalFile.exists()) {
+                val content = goalFile.readText()
+                val o = org.json.JSONObject(content)
+                val objective = o.optString("objective", "")
+                val status = o.optString("status", "active")
+                val summary = o.optString("summary", "")
+                if (objective.isNotEmpty()) {
+                    _sessionGoal.value = SessionGoal(objective = objective, status = status, summary = summary)
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("ChatViewModel", "Failed to load todos/goal from disk for $sid: ${e.message}")
+        }
+    }
+
+    internal fun saveTodosToDisk(sid: String, todos: List<SessionTodo>) {
+        try {
+            val base = java.io.File(context.filesDir, "minis-sessions/$sid").apply { mkdirs() }
+            val todosFile = java.io.File(base, "todos.json")
+            val array = org.json.JSONArray()
+            for (item in todos) {
+                array.put(org.json.JSONObject().apply {
+                    put("id", item.id)
+                    put("subject", item.subject)
+                    put("status", item.status)
+                    put("description", item.description)
+                })
+            }
+            todosFile.writeText(array.toString(2))
+        } catch (e: Exception) {
+            android.util.Log.e("ChatViewModel", "Failed to save todos to disk for $sid: ${e.message}")
+        }
+    }
+
+    internal fun saveGoalToDisk(sid: String, goal: SessionGoal?) {
+        try {
+            val base = java.io.File(context.filesDir, "minis-sessions/$sid").apply { mkdirs() }
+            val goalFile = java.io.File(base, "goal.json")
+            if (goal == null) {
+                if (goalFile.exists()) goalFile.delete()
+            } else {
+                val obj = org.json.JSONObject().apply {
+                    put("objective", goal.objective)
+                    put("status", goal.status)
+                    put("summary", goal.summary)
+                }
+                goalFile.writeText(obj.toString(2))
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("ChatViewModel", "Failed to save goal to disk for $sid: ${e.message}")
+        }
     }
 
     internal val _customSystemPrompt = MutableStateFlow<String?>(null)
@@ -4007,6 +4084,13 @@ Shared directory /var/minis/ (bidirectional read/write between shell and app):
                 }
             }
         }
+        listOf("todos.json", "goal.json").forEach { filename ->
+            val src = java.io.File(draftBase, filename)
+            if (src.exists()) {
+                val dst = java.io.File(realBase, filename)
+                src.renameTo(dst)
+            }
+        }
         runCatching { draftBase.deleteRecursively() }
 
         // Also rename the BrowserTabPool saved-state file (filesDir/browser_tabs/<sid>.json).
@@ -4102,6 +4186,7 @@ Shared directory /var/minis/ (bidirectional read/write between shell and app):
             _sessionTitle.value = session.title ?: "New Chat"
             _sessionCategory.value = session.category
             _memoryEnabled.value = session.memoryEnabled != 0
+            loadTodosAndGoalFromDisk(sessionId)
             // T239: hydrate persisted thinking-mode override. null = unset
             // (use OFF as the legacy default); non-null = explicit user
             // choice persisted across cold-start. runCatching guards against
@@ -9279,6 +9364,7 @@ Shared directory /var/minis/ (bidirectional read/write between shell and app):
             "todo" -> executeTodoTool(argsJson)
             "task" -> executeTaskTool(argsJson)
             "goal" -> executeGoalTool(argsJson)
+            "ssh_server" -> executeSSHServerTool(argsJson)
             else -> ToolExecutionResult("Unknown tool: $name", false)
         }
     }
@@ -9298,6 +9384,7 @@ Shared directory /var/minis/ (bidirectional read/write between shell and app):
                     val item = SessionTodo(id = nextId, subject = subject, status = status, description = description)
                     currentList.add(item)
                     _sessionTodos.value = currentList
+                    saveTodosToDisk(sessionId, currentList)
                     ToolExecutionResult(
                         JSONObject().put("status", "ok").put("id", nextId).put("subject", subject).put("itemStatus", status).toString(),
                         true,
@@ -9316,6 +9403,7 @@ Shared directory /var/minis/ (bidirectional read/write between shell and app):
                         val updated = existing.copy(subject = subject, status = status, description = desc)
                         currentList[idx] = updated
                         _sessionTodos.value = currentList
+                        saveTodosToDisk(sessionId, currentList)
                         ToolExecutionResult(
                             JSONObject().put("status", "ok").put("updatedId", id).put("itemStatus", status).toString(),
                             true,
@@ -9333,10 +9421,12 @@ Shared directory /var/minis/ (bidirectional read/write between shell and app):
                     val id = args.optInt("id", -1)
                     val removed = currentList.removeAll { it.id == id }
                     _sessionTodos.value = currentList
+                    saveTodosToDisk(sessionId, currentList)
                     ToolExecutionResult(JSONObject().put("status", "ok").put("deleted", removed).put("id", id).toString(), true)
                 }
                 "clear" -> {
                     _sessionTodos.value = emptyList()
+                    saveTodosToDisk(sessionId, emptyList())
                     ToolExecutionResult(JSONObject().put("status", "ok").put("cleared", true).toString(), true)
                 }
                 else -> ToolExecutionResult("Unknown todo action: $action", false)
@@ -9362,6 +9452,7 @@ Shared directory /var/minis/ (bidirectional read/write between shell and app):
                     val summary = args.optString("summary", "")
                     val goal = SessionGoal(objective = objective, status = status, summary = summary)
                     _sessionGoal.value = goal
+                    saveGoalToDisk(sessionId, goal)
                     ToolExecutionResult(JSONObject().put("status", "ok").put("goal", objective).put("goalStatus", status).toString(), true)
                 }
                 "update" -> {
@@ -9371,6 +9462,7 @@ Shared directory /var/minis/ (bidirectional read/write between shell and app):
                     val summary = if (args.has("summary")) args.getString("summary") else current?.summary ?: ""
                     val updated = SessionGoal(objective = objective, status = status, summary = summary)
                     _sessionGoal.value = updated
+                    saveGoalToDisk(sessionId, updated)
                     ToolExecutionResult(JSONObject().put("status", "ok").put("goal", objective).put("goalStatus", status).put("summary", summary).toString(), true)
                 }
                 "get" -> {
@@ -9385,13 +9477,128 @@ Shared directory /var/minis/ (bidirectional read/write between shell and app):
                     val current = _sessionGoal.value
                     val summary = args.optString("summary", current?.summary ?: "Completed")
                     val objective = current?.objective ?: args.optString("objective", "Goal")
-                    _sessionGoal.value = SessionGoal(objective = objective, status = "completed", summary = summary)
+                    val updated = SessionGoal(objective = objective, status = "completed", summary = summary)
+                    _sessionGoal.value = updated
+                    saveGoalToDisk(sessionId, updated)
                     ToolExecutionResult(JSONObject().put("status", "ok").put("completed", true).put("summary", summary).toString(), true)
                 }
                 else -> ToolExecutionResult("Unknown goal action: $action", false)
             }
         } catch (e: Exception) {
             ToolExecutionResult("Failed to execute goal tool: ${e.message}", false)
+        }
+    }
+
+    private fun executeSSHServerTool(argsJson: String): ToolExecutionResult {
+        return try {
+            val app = context.applicationContext as? com.openminis.app.MinisApp
+            val repo = app?.sshServerRepository
+            if (repo == null) {
+                return ToolExecutionResult(JSONObject().put("error", "SSHServerRepository unavailable").toString(), false)
+            }
+            val args = JSONObject(argsJson)
+            val action = args.optString("action", "list").lowercase()
+
+            when (action) {
+                "list" -> {
+                    val servers = repo.servers.value
+                    val array = org.json.JSONArray()
+                    for (s in servers) {
+                        array.put(JSONObject().apply {
+                            put("id", s.id)
+                            put("name", s.name)
+                            put("host", s.host)
+                            put("port", s.port)
+                            put("username", s.username)
+                            put("authType", s.authType.name)
+                            put("keyType", s.keyType)
+                            put("note", s.note)
+                        })
+                    }
+                    ToolExecutionResult(JSONObject().put("status", "ok").put("count", servers.size).put("servers", array).toString(), true)
+                }
+                "get" -> {
+                    val id = args.optString("id", "")
+                    val name = args.optString("name", "")
+                    val server = if (id.isNotEmpty()) repo.getServer(id) else if (name.isNotEmpty()) repo.getServerByName(name) else null
+                    if (server == null) {
+                        ToolExecutionResult(JSONObject().put("error", "Server not found").toString(), false)
+                    } else {
+                        val secret = repo.getSecret(server.id)
+                        val res = JSONObject().apply {
+                            put("status", "ok")
+                            put("id", server.id)
+                            put("name", server.name)
+                            put("host", server.host)
+                            put("port", server.port)
+                            put("username", server.username)
+                            put("authType", server.authType.name)
+                            put("keyType", server.keyType)
+                            put("note", server.note)
+                            put("hasPassword", !secret.password.isNullOrEmpty())
+                            put("hasPrivateKey", !secret.privateKey.isNullOrEmpty())
+                            if (!secret.password.isNullOrEmpty()) put("password", secret.password)
+                            if (!secret.privateKey.isNullOrEmpty()) put("privateKey", secret.privateKey)
+                            if (!secret.passphrase.isNullOrEmpty()) put("passphrase", secret.passphrase)
+                        }
+                        ToolExecutionResult(res.toString(), true)
+                    }
+                }
+                "save" -> {
+                    val id = args.optString("id", "").ifEmpty { java.util.UUID.randomUUID().toString() }
+                    val name = args.optString("name", "").ifEmpty {
+                        return ToolExecutionResult(JSONObject().put("error", "Missing required field: name").toString(), false)
+                    }
+                    val host = args.optString("host", "").ifEmpty {
+                        return ToolExecutionResult(JSONObject().put("error", "Missing required field: host").toString(), false)
+                    }
+                    val port = args.optInt("port", 22)
+                    val username = args.optString("username", "root").ifEmpty { "root" }
+                    val authTypeStr = args.optString("auth_type", "password").uppercase()
+                    val authType = if (authTypeStr.contains("KEY")) com.openminis.app.data.model.SSHAuthType.PRIVATE_KEY else com.openminis.app.data.model.SSHAuthType.PASSWORD
+                    val keyType = args.optString("key_type", "AUTO").uppercase()
+                    val note = args.optString("note", "")
+
+                    val password = if (args.has("password") && !args.isNull("password")) args.optString("password") else null
+                    val privateKey = if (args.has("private_key") && !args.isNull("private_key")) args.optString("private_key") else null
+                    val passphrase = if (args.has("passphrase") && !args.isNull("passphrase")) args.optString("passphrase") else null
+
+                    val entry = com.openminis.app.data.model.SSHServerEntry(
+                        id = id,
+                        name = name,
+                        host = host,
+                        port = port,
+                        username = username,
+                        authType = authType,
+                        keyType = keyType,
+                        note = note,
+                    )
+                    val secret = com.openminis.app.data.model.SSHServerSecret(
+                        password = password,
+                        privateKey = privateKey,
+                        passphrase = passphrase,
+                    )
+                    val saved = repo.saveServer(entry, secret)
+                    ToolExecutionResult(
+                        JSONObject().put("status", "ok").put("id", saved.id).put("name", saved.name).put("message", "SSH server saved successfully").toString(),
+                        true,
+                    )
+                }
+                "delete" -> {
+                    val id = args.optString("id", "")
+                    val name = args.optString("name", "")
+                    val target = if (id.isNotEmpty()) repo.getServer(id) else if (name.isNotEmpty()) repo.getServerByName(name) else null
+                    if (target == null) {
+                        ToolExecutionResult(JSONObject().put("error", "Server not found to delete").toString(), false)
+                    } else {
+                        val deleted = repo.deleteServer(target.id)
+                        ToolExecutionResult(JSONObject().put("status", "ok").put("deleted", deleted).put("id", target.id).toString(), true)
+                    }
+                }
+                else -> ToolExecutionResult(JSONObject().put("error", "Unknown action: $action").toString(), false)
+            }
+        } catch (e: Exception) {
+            ToolExecutionResult(JSONObject().put("error", "Failed to execute ssh_server tool: ${e.message}").toString(), false)
         }
     }
 

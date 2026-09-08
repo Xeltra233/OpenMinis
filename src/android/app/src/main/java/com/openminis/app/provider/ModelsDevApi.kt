@@ -334,7 +334,7 @@ object ModelsDevApi {
 
     // MARK: - Parse registry JSON
 
-    private fun parseRegistry(jsonStr: String): Map<String, ProviderEntry>? {
+    internal fun parseRegistry(jsonStr: String): Map<String, ProviderEntry>? {
         return try {
             val json = JSONObject(jsonStr)
             val result = mutableMapOf<String, ProviderEntry>()

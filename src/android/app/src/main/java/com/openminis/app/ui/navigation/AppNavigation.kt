@@ -125,6 +125,7 @@ object Routes {
     const val FILE_BROWSER = "file_browser"
     const val FILE_PREVIEW = "file_preview"
     const val ENV_VARS = "env_vars"
+    const val SSH_SERVERS = "ssh_servers"
     const val SKILLS = "skills"
     const val SKILL_DETAIL = "skill/{skillId}"
     const val SKILL_FILE = "skill_file/{skillId}/{relativePath}"
@@ -223,6 +224,7 @@ fun AppNavigation(
     chatRepository: ChatRepository,
     providerRepository: ProviderRepository,
     envVarRepository: EnvVarRepository? = null,
+    sshServerRepository: com.openminis.app.data.repository.SSHServerRepository? = null,
     skillRepository: SkillRepository? = null,
     mcpRepository: com.openminis.app.data.repository.MCPRepository? = null,
     memoryRepository: MemoryRepository? = null,
@@ -601,6 +603,7 @@ fun AppNavigation(
                 onAboutClick = { navController.safeNavigate(Routes.ABOUT) },
                 onMountedFoldersClick = { navController.safeNavigate(Routes.MOUNTED_FOLDERS) },
                 onSharedFoldersClick = { navController.safeNavigate(Routes.SHARED_FOLDERS) },
+                onSSHServersClick = { navController.safeNavigate(Routes.SSH_SERVERS) },
             )
         }
 
@@ -1169,6 +1172,15 @@ fun AppNavigation(
             if (envVarRepository != null) {
                 EnvironmentVariablesScreen(
                     envVarRepository = envVarRepository,
+                    onBack = { navController.safePopBackStack() },
+                )
+            }
+        }
+
+        composable(Routes.SSH_SERVERS) {
+            if (sshServerRepository != null) {
+                com.openminis.app.ui.settings.SSHServersScreen(
+                    sshServerRepository = sshServerRepository,
                     onBack = { navController.safePopBackStack() },
                 )
             }
