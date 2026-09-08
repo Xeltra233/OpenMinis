@@ -14,7 +14,7 @@ on:
         default: true
         type: boolean
       tag_name:
-        description: 'Custom tag name (e.g. v1.13, leave empty for auto)'
+        description: 'Custom tag name (e.g. v1.13-1.0, leave empty for auto)'
         required: false
         type: string
 
@@ -132,7 +132,7 @@ jobs:
           path: dist/*.apk
 
       - name: Create GitHub Release
-        if: ${{ startsWith(github.ref, 'refs/tags/') || github.event.inputs.create_release == 'true' || github.ref == 'refs/heads/main' }}
+        if: ${{ startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && github.event.inputs.create_release == 'true') }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version_step.outputs.tag_name }}
