@@ -1,0 +1,142 @@
+name: Build Android APK & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: 'Create GitHub Release'
+        required: false
+        default: true
+        type: boolean
+      tag_name:
+        description: 'Custom tag name (e.g. v1.13, leave empty for auto)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build & Release Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android SDK Licenses & Install Components
+        run: |
+          yes | sdkmanager --licenses || true
+          sdkmanager "platforms;android-36" "platforms;android-35" "build-tools;35.0.0" "cmake;3.22.1" || true
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Determine Version
+        id: version_step
+        run: |
+          # 1. Check custom tag from workflow_dispatch
+          CUSTOM_TAG="${{ github.event.inputs.tag_name }}"
+          
+          # 2. Extract versionName from build.gradle.kts
+          GRADLE_VERSION=$(grep -E '^\s*versionName\s*=\s*' src/android/app/build.gradle.kts | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/' | tr -d '[:space:]')
+          if [ -z "$GRADLE_VERSION" ]; then
+            GRADLE_VERSION="1.13"
+          fi
+          
+          if [ -n "$CUSTOM_TAG" ]; then
+            TAG_NAME="$CUSTOM_TAG"
+            VERSION="${CUSTOM_TAG#v}"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG_NAME="${GITHUB_REF_NAME}"
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            TAG_NAME="v${GRADLE_VERSION}"
+            VERSION="${GRADLE_VERSION}"
+          fi
+          
+          RELEASE_TITLE="OpenMinis v${VERSION}"
+          echo "Detected Version: $VERSION"
+          echo "Tag Name: $TAG_NAME"
+          echo "Release Title: $RELEASE_TITLE"
+          
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
+          echo "release_title=$RELEASE_TITLE" >> "$GITHUB_OUTPUT"
+
+      - name: Grant execute permission for scripts & gradlew
+        run: |
+          chmod +x src/android/gradlew
+          chmod +x scripts/*.sh
+
+      - name: Build Android APK (Release & Debug)
+        run: |
+          cd src/android
+          ./gradlew :app:assembleRelease :app:assembleDebug --no-daemon -Dorg.gradle.jvmargs="-Xmx4096m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8"
+
+      - name: Prepare and rename APK artifacts
+        run: |
+          VERSION="${{ steps.version_step.outputs.version }}"
+          RELEASE_DIR="src/android/app/build/outputs/apk/release"
+          DEBUG_DIR="src/android/app/build/outputs/apk/debug"
+          
+          mkdir -p dist
+          if [ -f "$RELEASE_DIR/app-release.apk" ]; then
+            cp "$RELEASE_DIR/app-release.apk" "dist/OpenMinis-${VERSION}-release.apk"
+          fi
+          if [ -f "$DEBUG_DIR/app-debug.apk" ]; then
+            cp "$DEBUG_DIR/app-debug.apk" "dist/OpenMinis-${VERSION}-debug.apk"
+          fi
+          
+          ls -lh dist/
+
+      - name: Upload APK Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenMinis-${{ steps.version_step.outputs.version }}-apks
+          path: dist/*.apk
+
+      - name: Create GitHub Release
+        if: ${{ startsWith(github.ref, 'refs/tags/') || github.event.inputs.create_release == 'true' || github.ref == 'refs/heads/main' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version_step.outputs.tag_name }}
+          name: ${{ steps.version_step.outputs.release_title }}
+          body: |
+            ## OpenMinis v${{ steps.version_step.outputs.version }}
+            
+            ### Included Features:
+            - **Max Thinking Depth ULTRA**: Support reasoning depth up to ULTRA across providers.
+            - **Channel Affix Stripping & Multimodal Detection**: Automatically recognize core model IDs (e.g. `[Antigravity渠道] gemini-3.8-flash-high`, `[Antigravity渠道] gemini-pro-agent`) to enable vision/image input and deep thinking.
+            - **AI Task Management**: AI Agent tools (`todo`, `task`, `goal`) for autonomous task and goal tracking.
+            - **Collapsible Task UI**: Compact, non-intrusive collapsible Todo/Task card on mobile screens.
+            - **Agent Runtime System Prompt Editor**: Edit `SYSTEM.md` and `APPEND_SYSTEM.md` directly from chat settings.
+            
+            ### Download APK:
+            - `OpenMinis-${{ steps.version_step.outputs.version }}-release.apk`: Production release APK
+            - `OpenMinis-${{ steps.version_step.outputs.version }}-debug.apk`: Debug APK with debugging server enabled
+          files: |
+            dist/OpenMinis-*-release.apk
+            dist/OpenMinis-*-debug.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
