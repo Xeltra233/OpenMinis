@@ -995,7 +995,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         // while "max" was declared yet unreachable. See
         // `ModelEntry.selectableThinkingLevels` for the fallback rules.
         guard let entry = resolveCurrentEntry() else {
-            return ThinkingLevel.allCases.filter { $0 != .off && $0 <= .xhigh }
+            return ThinkingLevel.allCases.filter { $0 != .off && $0 <= .ultra }
         }
         return entry.selectableThinkingLevels
     }
@@ -6402,7 +6402,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
 
     /// Set thinking level — persists if session exists, otherwise holds in memory.
     func setThinkingLevel(_ level: ThinkingLevel) {
-        let maxLevel = resolveCurrentEntry()?.effectiveMaxThinkingLevel ?? .xhigh
+        let maxLevel = resolveCurrentEntry()?.effectiveMaxThinkingLevel ?? .ultra
         let clamped = level == .off ? level : min(level, maxLevel)
         if let sid = sessionId {
             var cfg = ProviderConfigStore.shared.inferenceConfig(for: sid) ?? SessionInferenceConfig()
@@ -6442,7 +6442,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             return pendingThinkingLevel ?? defaultGroupThinkingLevel
         }()
         guard stored.isEnabled else { return stored }
-        guard let entry = resolveCurrentEntry() else { return min(stored, .xhigh) }
+        guard let entry = resolveCurrentEntry() else { return min(stored, .ultra) }
         let clamped = min(stored, entry.effectiveMaxThinkingLevel)
         // [T-thinking-levels-data-driven] The offered set can be SPARSE (a model
         // declaring ["high","max"] offers only High/Max), and a level persisted

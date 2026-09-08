@@ -12,10 +12,10 @@ final class ThinkingLevelTests: XCTestCase {
         XCTAssertEqual(ThinkingLevel.decoded("ultra"), .ultra)
     }
 
-    func testDecodedUnknownValueFallsBackToXHigh() {
-        XCTAssertEqual(ThinkingLevel.decoded("some-future-level"), .xhigh)
-        XCTAssertEqual(ThinkingLevel.decoded(""), .xhigh)
-        XCTAssertEqual(ThinkingLevel.decoded("supermax"), .xhigh)
+    func testDecodedUnknownValueFallsBackToUltra() {
+        XCTAssertEqual(ThinkingLevel.decoded("some-future-level"), .ultra)
+        XCTAssertEqual(ThinkingLevel.decoded(""), .ultra)
+        XCTAssertEqual(ThinkingLevel.decoded("supermax"), .ultra)
     }
 
     func testComparable() {
@@ -53,7 +53,7 @@ final class ThinkingLevelTests: XCTestCase {
         }
         """.data(using: .utf8)!
         let group = try JSONDecoder().decode(ModelGroup.self, from: json)
-        XCTAssertEqual(group.defaultThinkingLevel, .xhigh)
+        XCTAssertEqual(group.defaultThinkingLevel, .ultra)
     }
 
     func testSessionInferenceConfigDecodeWithUnknownLevel() throws {
@@ -61,6 +61,6 @@ final class ThinkingLevelTests: XCTestCase {
         { "thinkingLevel": "hyper-future" }
         """.data(using: .utf8)!
         let cfg = try JSONDecoder().decode(SessionInferenceConfig.self, from: json)
-        XCTAssertEqual(cfg.thinkingLevel, .xhigh)
+        XCTAssertEqual(cfg.thinkingLevel, .ultra)
     }
 }

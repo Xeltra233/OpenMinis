@@ -859,7 +859,7 @@ enum ThinkingLevel: String, Codable, Hashable, CaseIterable, Comparable {
     var isEnabled: Bool { self != .off }
 
     static func decoded(_ raw: String) -> ThinkingLevel {
-        ThinkingLevel(rawValue: raw) ?? .xhigh
+        ThinkingLevel(rawValue: raw) ?? .ultra
     }
 }
 
@@ -881,7 +881,7 @@ extension LLMModel {
         if let declaredTop = selectableThinkingLevels.last {
             return declaredTop
         }
-        return ThinkingLevelCatalog.declaredMaxLevel(for: id) ?? .xhigh
+        return ThinkingLevelCatalog.declaredMaxLevel(for: id) ?? .ultra
     }
 
     /// [T-thinking-levels-data-driven] The thinking levels worth OFFERING for
@@ -907,7 +907,7 @@ extension LLMModel {
         // "minimal" are OFF-ish tiers handled by the toggle, not the ladder.
         let mapping: [(wire: String, level: ThinkingLevel)] = [
             ("low", .low), ("medium", .medium), ("high", .high),
-            ("xhigh", .xhigh), ("max", .max),
+            ("xhigh", .xhigh), ("max", .max), ("ultra", .ultra),
         ]
         let set = Set(declared.map { $0.lowercased() })
         return mapping.filter { set.contains($0.wire) }.map(\.level)

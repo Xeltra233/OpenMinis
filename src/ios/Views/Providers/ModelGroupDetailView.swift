@@ -39,12 +39,12 @@ struct ModelGroupDetailView: View {
         // Take the max over reasoning-capable members (exclude .off). The group's
         // default level is later clamped per-model at request time
         // (AgentProvider: min(thinkingLevel, model.catalogMaxThinkingLevel)), so
-        // offering the group's true ceiling here is safe. Fall back to .xhigh when
+        // offering the group's true ceiling here is safe. Fall back to .ultra when
         // no member reasons (the picker is only reached with reasoning enabled).
         let levels = group.memberEntryIds
             .compactMap { store.entry(for: $0)?.effectiveMaxThinkingLevel }
             .filter { $0 != .off }
-        return levels.max() ?? .xhigh
+        return levels.max() ?? .ultra
     }
 
     /// [T-thinking-levels-data-driven] The levels the group's Intensity picker
