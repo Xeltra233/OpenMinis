@@ -1627,7 +1627,7 @@ class ChatViewModel(
             if (entry != null) {
                 return entry.effectiveMaxThinkingLevel
             }
-            val model = currentModel ?: return ThinkingLevel.XHIGH
+            val model = currentModel ?: return ThinkingLevel.ULTRA
             return model.catalogMaxThinkingLevel
         }
 

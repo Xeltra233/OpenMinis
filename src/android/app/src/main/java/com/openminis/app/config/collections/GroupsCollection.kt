@@ -178,7 +178,7 @@ class GroupsCollection(
             path = "groups.$id.defaultThinkingLevel",
             displayName = "Default thinking level",
             description = "Applied to new sessions bound to this group. Empty = off.",
-            valueSchema = ConfigSchema.StrEnum(listOf("", "off", "low", "medium", "high", "xhigh")),
+            valueSchema = ConfigSchema.StrEnum(listOf("", "off", "low", "medium", "high", "xhigh", "max", "ultra")),
             risk = ConfigRisk.NORMAL,
             revertable = true,
             reader = {

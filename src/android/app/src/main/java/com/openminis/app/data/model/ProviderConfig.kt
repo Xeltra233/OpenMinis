@@ -134,12 +134,12 @@ enum class ThinkingLevel {
          * build reading a token a NEWER build persisted (Room DB / JSON mirror).
          * Mirrors the `runCatching { … }.getOrNull()` guard already used for
          * ImageEndpointMode (ProviderConfigMapping.kt). NEVER throws: an unknown
-         * value clamps to the highest level THIS build knows (XHIGH) rather than
+         * value clamps to the highest level THIS build knows (ULTRA) rather than
          * letting the caller handle an exception or drop the whole config. Use
          * this for every "read from persisted data" path.
          */
         fun decoded(raw: String): ThinkingLevel =
-            runCatching { valueOf(raw) }.getOrElse { XHIGH }
+            runCatching { valueOf(raw) }.getOrElse { ULTRA }
     }
 }
 

@@ -118,9 +118,9 @@ internal object ConfigBuiltins {
             ClosureField(
                 path = "session.thinkingLevel",
                 displayName = "Thinking level (current session)",
-                description = "off / low / medium / high / xhigh. Applied to the active chat.",
+                description = "off / low / medium / high / xhigh / max / ultra. Applied to the active chat.",
                 valueSchema = ConfigSchema.StrEnum(
-                    listOf("off", "low", "medium", "high", "xhigh")
+                    listOf("off", "low", "medium", "high", "xhigh", "max", "ultra")
                 ),
                 risk = ConfigRisk.NORMAL,
                 revertable = true,

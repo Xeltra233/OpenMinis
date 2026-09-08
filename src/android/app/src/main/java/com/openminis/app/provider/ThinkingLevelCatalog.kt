@@ -65,9 +65,7 @@ object ThinkingLevelCatalog {
  *   1. supportsReasoning == false → OFF (checked BEFORE catalog rules so a
  *      broadened family rule can't lift a non-reasoning member's ceiling).
  *   2. ThinkingLevelCatalog rule.
- *   3. true/null → XHIGH (conservative default so a reasoning model isn't
- *      accidentally capped below the tiers every provider already accepted
- *      pre-GPT-5.6).
+ *   3. true/null → ULTRA (supports full thinking up to ULTRA).
  */
 val LLMModel.catalogMaxThinkingLevel: ThinkingLevel
     get() {
@@ -97,7 +95,7 @@ val LLMModel.catalogMaxThinkingLevel: ThinkingLevel
         // (which 400s), and loosening it would trade this bug for that one.
         // Mirrors iOS LLMTypes.swift `catalogMaxThinkingLevel` (47dc71b3).
         selectableThinkingLevels.lastOrNull()?.let { return it }
-        return ThinkingLevelCatalog.declaredMaxLevel(id) ?: ThinkingLevel.XHIGH
+        return ThinkingLevelCatalog.declaredMaxLevel(id) ?: ThinkingLevel.ULTRA
     }
 
 /**
@@ -134,6 +132,7 @@ val LLMModel.selectableThinkingLevels: List<ThinkingLevel>
             "high" to ThinkingLevel.HIGH,
             "xhigh" to ThinkingLevel.XHIGH,
             "max" to ThinkingLevel.MAX,
+            "ultra" to ThinkingLevel.ULTRA,
         )
         val set = declared.map { it.lowercase() }.toSet()
         return mapping.filter { set.contains(it.first) }.map { it.second }
