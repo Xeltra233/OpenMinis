@@ -346,14 +346,12 @@ fun SettingsScreen(
     }
 
     if (showSystemPromptSheet) {
-        val memoryRepo = (context.applicationContext as? MinisApp)?.memoryRepository
+        val promptRepo = (context.applicationContext as? MinisApp)?.systemPromptRepository
         val currentSys = remember(showSystemPromptSheet) {
-            memoryRepo?.readFile("SYSTEM.md") ?: ""
+            promptRepo?.loadSystemPrompt() ?: ""
         }
         val currentApp = remember(showSystemPromptSheet) {
-            memoryRepo?.readFile("APPEND.SYSTEM.md")?.takeIf { it.isNotBlank() }
-                ?: memoryRepo?.readFile("APPEND_SYSTEM.md")
-                ?: ""
+            promptRepo?.loadAppendPrompt() ?: ""
         }
         val defaultPrompt = remember {
             SystemPromptBuilder.identitySection(context) +
@@ -381,18 +379,7 @@ Shared directory /var/minis/ (bidirectional read/write between shell and app):
             appendSystemMdContent = currentApp,
             defaultPrompt = defaultPrompt,
             onSave = { systemMd, appendMd ->
-                if (systemMd.isBlank()) {
-                    memoryRepo?.deleteFile("SYSTEM.md")
-                } else {
-                    memoryRepo?.saveFile("SYSTEM.md", systemMd)
-                }
-                if (appendMd.isBlank()) {
-                    memoryRepo?.deleteFile("APPEND.SYSTEM.md")
-                    memoryRepo?.deleteFile("APPEND_SYSTEM.md")
-                } else {
-                    memoryRepo?.saveFile("APPEND.SYSTEM.md", appendMd)
-                    memoryRepo?.saveFile("APPEND_SYSTEM.md", appendMd)
-                }
+                promptRepo?.saveSystemPromptFiles(systemMd, appendMd)
                 android.widget.Toast.makeText(context, "系统提示词已保存", android.widget.Toast.LENGTH_SHORT).show()
                 showSystemPromptSheet = false
             },

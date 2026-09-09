@@ -1,5 +1,6 @@
 package com.openminis.app.ui.chat
 
+import com.openminis.app.MinisApp
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
@@ -550,6 +551,7 @@ fun ChatScreen(
             memoryRepository = memoryRepository,
             skillRepository = skillRepository,
             mcpRepository = mcpRepository,
+            systemPromptRepository = (context.applicationContext as? MinisApp)?.systemPromptRepository,
         ),
     )
     // [T-android-larky-longsession-followup] Consume the tail-windowed

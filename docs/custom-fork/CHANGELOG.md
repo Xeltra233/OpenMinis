@@ -261,4 +261,38 @@
        - `/goal resume`：检查是否存在已注册且未完成的任务。若目标已 `completed` 且所有任务均已完成，**明确禁止 resume** 并提示用户使用 `/goal <新任务>` 开启新目标；若存在进行中/待处理任务或处于 paused 状态，则恢复目标并立即发起带有任务列表的继续推进轮次。
        - `/goal pause`：已完成的目标禁止 pause；仅对未完成/进行中的目标生效。
        - `/goal drop` / `/goal clear` / `/goal cancel`：清空当前目标及磁盘持久化。
-       - `/goal show` / `/goal status` / `/goal`：展示当前目标的详细状态、完成摘要、已注册任务统计（共几项、完成几项、待处理几项）与上下文可用指令提示。
+      - `/goal show` / `/goal status` / `/goal`：展示当前目标的详细状态、完成摘要、已注册任务统计（共几项、完成几项、待处理几项）与上下文可用指令提示。
+
+---
+
+## 17. 系统提示词独立存储架构重构与记忆文件列表净化 (System Prompt Isolation & Memory File Cleanup)
+- **问题与根因分析**：
+  1. **重复提示词文件生成**：之前在保存追加系统提示词时，为了兼容性同时写入了 `APPEND_SYSTEM.md` 与 `APPEND.SYSTEM.md` 两个文件，导致磁盘上冗余生成两个追加提示词文件；
+  2. **系统提示词污染记忆文件列表**：之前系统提示词直接借用 `MemoryRepository` 存储在 `/var/minis/memory/`（`minis-global/memory/`）目录下；而 `MemoryRepository.listAllFiles()` 仅过滤排除了 `GLOBAL.md`，导致记忆界面的“檔案”列表将 `SYSTEM.md`、`APPEND_SYSTEM.md`、`APPEND.SYSTEM.md` 误作为每日对话记忆日志列出；
+  3. **架构职责混淆**：系统提示词属于 Agent 运行时的全局指令配置，不属于基于日期的对话上下文持久化记忆（Conversation Memory）。
+- **重构与修复方案**：
+  1. **新建独立的 `SystemPromptRepository` 架构**：
+     - 存储路径物理隔离至 `/var/minis/prompts/`（Android 本地对应 `minis-global/prompts/`），与 `minis-global/memory/` 彻底解耦；
+     - 确立统一且规范的文件常量名 `APPEND_SYSTEM.md`，彻底废弃 `APPEND.SYSTEM.md` 双写逻辑；
+     - 内置无缝平滑迁移（Migration & Self-Cleaning）：应用启动或首次加载时，自动从旧 `memory` 目录检测并迁移 `SYSTEM.md` 与 `APPEND_SYSTEM.md` / `APPEND.SYSTEM.md`，迁移后自动删除旧目录中的残留文件，实现用户无感知升级且保证不丢数据。
+  2. **`MemoryRepository` 引入严格的每日记忆正则白名单**：
+     - 定义严格白名单规则：`DAILY_LOG_PATTERN = Regex("""^\d{4}-\d{2}-\d{2}\.md$""")`；
+     - 在 `listAllFiles()`、`getMemory()` 与 `searchMemory()` 中，仅允许展示和搜索 `GLOBAL.md` 以及严格匹配 `YYYY-MM-DD.md` 格式的真实对话记忆日志；
+     - 彻底封死任何非记忆文件（系统提示词、临时文件等）泄漏到记忆文件列表的可能。
+  3. **全局调用层解耦替换**：
+     - 在 `MinisApp` 中集中提供 `SystemPromptRepository` 单例；
+     - `ChatViewModel`、`ChatScreen` 与 `SettingsScreen` 全面改由 `SystemPromptRepository` 负责系统提示词与追加提示词的加载、保存与注入（`buildSystemPrompt()`）；
+     - `BackupExporter` 中系统提示词读取对齐新路径。
+- **修改文件列表**：
+  1. `src/android/app/src/main/java/com/openminis/app/data/repository/SystemPromptRepository.kt`（新增独立仓储）
+  2. `src/android/app/src/main/java/com/openminis/app/data/repository/MemoryRepository.kt`（白名单正则过滤）
+  3. `src/android/app/src/main/java/com/openminis/app/MinisApp.kt`（注册系统提示词单例）
+  4. `src/android/app/src/main/java/com/openminis/app/ui/chat/ChatViewModel.kt`（提示词构建与保存解耦）
+  5. `src/android/app/src/main/java/com/openminis/app/ui/chat/ChatScreen.kt`（对话菜单系统提示词注入对齐）
+  6. `src/android/app/src/main/java/com/openminis/app/ui/settings/SettingsScreen.kt`（设置界面提示词保存对齐）
+  7. `src/android/app/src/test/java/com/openminis/app/data/repository/SystemPromptRepositoryTest.kt`（自动化迁移与读写单元测试）
+  8. `src/android/app/src/test/java/com/openminis/app/data/repository/MemoryRepositoryFilterTest.kt`（记忆文件白名单单元测试）
+- **真机与模拟器验证**：
+  - 在 BlueStacks 5 模拟器上实机验证升级迁移：成功将旧环境中的追加提示词自动迁移并清理旧目录；
+  - 进入“設定 -> 記憶 -> 檔案”复测：原本显示的重复提示词（`APPEND_SYSTEM.md` 和 `APPEND.SYSTEM.md`）彻底消失，仅展示 `GLOBAL.md`，界面完全净化；
+  - 重新编辑并保存系统提示词与追加提示词，再次检查记忆列表，确认绝不再被污染，且聊天注入正常生效。

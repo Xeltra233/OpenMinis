@@ -20,6 +20,7 @@ class MemoryRepository(private val memoryDir: File) {
 
     companion object {
         private const val TAG = "MemoryRepository"
+        val DAILY_LOG_PATTERN = Regex("""^\d{4}-\d{2}-\d{2}\.md$""")
         private const val GLOBAL_FILE = "GLOBAL.md"
         private const val MAX_INJECT_LINES = 200
         // memory_get full-dump (no keywords): cap at 500 lines — matches iOS
@@ -114,7 +115,7 @@ class MemoryRepository(private val memoryDir: File) {
 
         // Daily logs sorted descending
         val dailyFiles = memoryDir.listFiles()
-            ?.filter { it.extension == "md" && it.name != GLOBAL_FILE }
+            ?.filter { it.name.matches(DAILY_LOG_PATTERN) }
             ?.sortedByDescending { it.name }
             ?: emptyList()
 
@@ -370,7 +371,7 @@ class MemoryRepository(private val memoryDir: File) {
 
         // Daily logs sorted descending
         val dailyFiles = memoryDir.listFiles()
-            ?.filter { it.extension == "md" && it.name != GLOBAL_FILE }
+            ?.filter { it.name.matches(DAILY_LOG_PATTERN) }
             ?.sortedByDescending { it.name }
             ?: emptyList()
 

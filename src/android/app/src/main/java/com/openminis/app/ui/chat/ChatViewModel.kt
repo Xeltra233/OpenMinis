@@ -98,6 +98,7 @@ class ChatViewModel(
     val memoryRepository: MemoryRepository? = null,
     val skillRepository: com.openminis.app.data.repository.SkillRepository? = null,
     val mcpRepository: com.openminis.app.data.repository.MCPRepository? = null,
+    val systemPromptRepository: com.openminis.app.data.repository.SystemPromptRepository? = null,
 ) : ViewModel() {
 
     companion object {
@@ -473,6 +474,7 @@ class ChatViewModel(
             memoryRepository: MemoryRepository?,
             skillRepository: com.openminis.app.data.repository.SkillRepository?,
             mcpRepository: com.openminis.app.data.repository.MCPRepository? = null,
+            systemPromptRepository: com.openminis.app.data.repository.SystemPromptRepository? = null,
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -484,6 +486,7 @@ class ChatViewModel(
                     memoryRepository = memoryRepository,
                     skillRepository = skillRepository,
                     mcpRepository = mcpRepository,
+                    systemPromptRepository = systemPromptRepository,
                 ) as T
             }
         }
@@ -993,38 +996,33 @@ class ChatViewModel(
     internal val _appendSystemPrompt = MutableStateFlow<String?>(null)
     val appendSystemPrompt: StateFlow<String?> = _appendSystemPrompt.asStateFlow()
 
+    private val effectivePromptRepository: com.openminis.app.data.repository.SystemPromptRepository?
+        get() = systemPromptRepository
+            ?: (context.applicationContext as? com.openminis.app.MinisApp)?.systemPromptRepository
+            ?: runCatching {
+                com.openminis.app.data.repository.SystemPromptRepository(
+                    promptsDir = java.io.File(context.filesDir, "minis-global/prompts"),
+                    legacyMemoryDir = java.io.File(context.filesDir, "minis-global/memory"),
+                )
+            }.getOrNull()
+
     fun setCustomSystemPrompt(custom: String?, append: String?) {
         _customSystemPrompt.value = custom?.takeIf { it.isNotBlank() }
         _appendSystemPrompt.value = append?.takeIf { it.isNotBlank() }
     }
 
     fun loadSystemPromptFiles(): Pair<String, String> {
-        val repo = memoryRepository
-        val sys = repo?.readFile("SYSTEM.md") ?: ""
-        val app = repo?.readFile("APPEND.SYSTEM.md")?.takeIf { it.isNotBlank() }
-            ?: repo?.readFile("APPEND_SYSTEM.md")
-            ?: ""
+        val repo = effectivePromptRepository
+        val sys = repo?.loadSystemPrompt() ?: ""
+        val app = repo?.loadAppendPrompt() ?: ""
         return sys to app
     }
 
     fun saveSystemPromptFiles(systemMd: String, appendMd: String) {
-        val repo = memoryRepository ?: return
-        if (systemMd.isBlank()) {
-            repo.deleteFile("SYSTEM.md")
-            _customSystemPrompt.value = null
-        } else {
-            repo.saveFile("SYSTEM.md", systemMd)
-            _customSystemPrompt.value = systemMd
-        }
-        if (appendMd.isBlank()) {
-            repo.deleteFile("APPEND.SYSTEM.md")
-            repo.deleteFile("APPEND_SYSTEM.md")
-            _appendSystemPrompt.value = null
-        } else {
-            repo.saveFile("APPEND.SYSTEM.md", appendMd)
-            repo.saveFile("APPEND_SYSTEM.md", appendMd)
-            _appendSystemPrompt.value = appendMd
-        }
+        val repo = effectivePromptRepository ?: return
+        repo.saveSystemPromptFiles(systemMd, appendMd)
+        _customSystemPrompt.value = systemMd.takeIf { it.isNotBlank() }
+        _appendSystemPrompt.value = appendMd.takeIf { it.isNotBlank() }
     }
 
     fun defaultBaseSystemPrompt(): String {
@@ -10723,8 +10721,8 @@ Memory system (currently DISABLED):
 - If the user asks why earlier memories aren't visible, or asks you to save something, tell them memory is currently disabled and point them at the /memory slash command or [Settings → Memory](minis://settings/memory) to re-enable it.
 - SOUL.md (personality / identity) is unaffected by this toggle; the persona section above still applies."""
         }
-        val repo = memoryRepository
-        val customPrompt = _customSystemPrompt.value?.trim() ?: repo?.readFile("SYSTEM.md")?.trim().takeIf { !it.isNullOrEmpty() }
+        val promptRepo = effectivePromptRepository
+        val customPrompt = _customSystemPrompt.value?.trim() ?: promptRepo?.loadSystemPrompt()?.trim().takeIf { !it.isNullOrEmpty() }
         val base = if (!customPrompt.isNullOrEmpty()) {
             customPrompt
         } else {
@@ -10909,11 +10907,11 @@ Scheduled tasks: crontab / at / nohup loops will stop when the app is suspended,
                 }
                 append("</session_todos>")
             }
+            val promptRepo = effectivePromptRepository
             val appendPrompt = _appendSystemPrompt.value?.trim()
-                ?: repo?.readFile("APPEND.SYSTEM.md")?.trim().takeIf { !it.isNullOrEmpty() }
-                ?: repo?.readFile("APPEND_SYSTEM.md")?.trim().takeIf { !it.isNullOrEmpty() }
+                ?: promptRepo?.loadAppendPrompt()?.trim().takeIf { !it.isNullOrEmpty() }
             if (!appendPrompt.isNullOrEmpty()) {
-                append("\n\nAdditional Instructions (from APPEND.SYSTEM.md):\n")
+                append("\n\nAdditional Instructions (from APPEND_SYSTEM.md):\n")
                 append(appendPrompt)
             }
         }

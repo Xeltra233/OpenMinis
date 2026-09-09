@@ -22,6 +22,7 @@ import com.openminis.app.data.repository.ChatRepository
 import com.openminis.app.data.repository.EnvVarRepository
 import com.openminis.app.data.MountedFoldersStore
 import com.openminis.app.data.repository.MemoryRepository
+import com.openminis.app.data.repository.SystemPromptRepository
 import com.openminis.app.data.repository.ProviderRepository
 import com.openminis.app.data.repository.WebAppShortcutRepository
 import com.openminis.app.data.repository.MCPRepository
@@ -160,6 +161,8 @@ class MinisApp : Application(), ImageLoaderFactory {
     lateinit var mcpRepository: MCPRepository
         private set
     lateinit var memoryRepository: MemoryRepository
+        private set
+    lateinit var systemPromptRepository: SystemPromptRepository
         private set
     lateinit var webAppShortcutRepository: WebAppShortcutRepository
         private set
@@ -436,7 +439,12 @@ class MinisApp : Application(), ImageLoaderFactory {
         // breaks the Application and produces the GH#147 crash loop.
         skillRepository = SkillRepository(this)
         mcpRepository = MCPRepository(this)
-        memoryRepository = MemoryRepository(java.io.File(filesDir, "minis-global/memory"))
+        val memDir = java.io.File(filesDir, "minis-global/memory")
+        memoryRepository = MemoryRepository(memDir)
+        systemPromptRepository = SystemPromptRepository(
+            promptsDir = java.io.File(filesDir, "minis-global/prompts"),
+            legacyMemoryDir = memDir,
+        )
         webAppShortcutRepository = WebAppShortcutRepository(database.webAppShortcutDao())
 
         // T-android-safemode-lateinit-crash: every repository the UI layer
