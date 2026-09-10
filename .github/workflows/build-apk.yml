@@ -150,6 +150,8 @@ jobs:
             ## OpenMinis v${{ steps.version_step.outputs.version }}
 
             ### Fixes in this release:
+            - **Image viewer drag follows the finger when zoomed**: the pan delta reported inside the image layer is in pre-scale local pixels while the layer `translationX/Y` is in screen pixels, so a magnified image used to move at 1/scale of the finger speed (a 300 px swipe moved it 110 px at 2.5x). Both viewers now share one zoom/pan state and compensate by the current scale.
+            - **Swiping between images works again**: the framework transform detector consumed every sample past touch slop, which blocked the gallery pager — a fitted image could not be swiped to the next one at all. The viewer now only claims a gesture for magnified panning or a two-finger pinch.
             - **SOUL.md is listed again under Settings → Memory**: the daily-log-only whitelist introduced in v1.13-1.1 hid SOUL.md from the memory list even though the file was untouched on disk. The list now shows GLOBAL.md, SOUL.md and the daily logs — and still never the system-prompt files.
             - **GLOBAL.md / SOUL.md can no longer be lost to a bad save**: memory reads distinguish "empty" from "unreadable", the editor disables Save when the file could not be read, and both files are written atomically (tmp + rename). Neither can be deleted from the memory list.
             - **Version numbers can no longer drift**: the APK's embedded `versionName` is stamped from the release tag at build time (v1.13-1.1 shipped an APK that still reported `1.13-1.0`).
