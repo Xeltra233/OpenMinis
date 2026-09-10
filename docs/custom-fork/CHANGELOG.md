@@ -386,7 +386,7 @@
   3. 新增单测 `src/android/app/src/test/java/com/openminis/app/ui/components/ZoomPanTransformTest.kt`（7 例）：把设备上量到的「300 px → 120 px 局部位移」场景固化为 `= 300 px` 的回归断言，并覆盖 1:1 补偿、8x 夹取、缩回 1x 归零、双击切换。
 - **验证证据**（同一模拟器、同一测试图，RED → GREEN 均为 `adb shell input swipe` 真手势 + 截图模板匹配量化）：
   1. 修复前（`v1.13-1.2` 装机版）：双击 2.5x 后拖拽 300 px → 位移 110 px（比例 0.37，模板匹配 sse = 0.0）；
-  2. 修复后（本提交构建，`adb install -r` 就地升级且 `firstInstallTime` 未变）：同样双击 2.5x 拖拽 300 px → 位移 275 px（比例 0.92，差额来自触摸 slop）；
+  2. 修复后（随 `1.13-1.3` 发布，`adb install -r` 就地升级且 `firstInstallTime` 未变）：同样双击 2.5x 拖拽 300 px → 位移 275 px（比例 0.92，差额来自触摸 slop）；
   3. 修复前：适配视图横滑后截图与滑动前**字节完全一致**（未翻页）；修复后：B 图 → A 图翻页成功，反向滑动也能回到 B；
   4. 放大状态下朝「下一页」方向横滑仍**不翻页**（截图仍是当前图，同时 61.2% 像素发生变化 = 确实在平移）；双击复位后的视图与放大前的适配视图字节一致；
   5. 单测：`ZoomPanTransformTest` 7/7 通过；全量 `:app:testDebugUnitTest` 1257 tests / 0 failures / 0 errors（140 suites）。
