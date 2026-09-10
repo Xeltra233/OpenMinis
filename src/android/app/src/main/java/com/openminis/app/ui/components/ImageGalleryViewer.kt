@@ -9,7 +9,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -32,7 +31,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -336,9 +334,9 @@ private fun GalleryPage(
     item: ImageGalleryItem,
     onTapChrome: () -> Unit,
 ) {
-    var scale by remember { mutableFloatStateOf(1f) }
-    var offsetX by remember { mutableFloatStateOf(0f) }
-    var offsetY by remember { mutableFloatStateOf(0f) }
+    // [T-viewer-drag-speed] One shared state object: the gesture maths lives in
+    // ZoomPanTransform so this page and FullscreenImageViewer cannot drift apart.
+    var transform by remember { mutableStateOf(ZoomPanTransform()) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         AsyncImage(
@@ -348,36 +346,27 @@ private fun GalleryPage(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer(
-                    scaleX = scale,
-                    scaleY = scale,
-                    translationX = offsetX,
-                    translationY = offsetY,
+                    scaleX = transform.scale,
+                    scaleY = transform.scale,
+                    translationX = transform.offsetX,
+                    translationY = transform.offsetY,
                 )
-                // When zoomed, this pointerInput intercepts horizontal pan
-                // so the parent pager doesn't change pages while the user
-                // is panning around inside a magnified image. Mirrors iOS
-                // UIScrollView naturally blocking the parent TabView swipe.
+                // [T-viewer-drag-speed] The detector only claims the gesture for a
+                // magnified pan or a two-finger pinch: a bare single-finger drag on a
+                // fitted image stays unconsumed so the parent pager can change pages,
+                // and while magnified the pager is blocked (as iOS UIScrollView does
+                // for the parent TabView swipe).
                 .pointerInput(Unit) {
-                    detectTransformGestures { _, pan, zoom, _ ->
-                        scale = (scale * zoom).coerceIn(1f, 8f)
-                        if (scale > 1f) {
-                            offsetX += pan.x
-                            offsetY += pan.y
-                        } else {
-                            offsetX = 0f
-                            offsetY = 0f
-                        }
-                    }
+                    detectViewerGestures(
+                        isZoomed = { transform.isZoomed },
+                        onGesture = { panX, panY, zoom ->
+                            transform = transform.gestureBy(panX, panY, zoom)
+                        },
+                    )
                 }
                 .pointerInput(Unit) {
                     detectTapGestures(
-                        onDoubleTap = {
-                            if (scale > 1f) {
-                                scale = 1f; offsetX = 0f; offsetY = 0f
-                            } else {
-                                scale = 2.5f
-                            }
-                        },
+                        onDoubleTap = { transform = transform.toggledByDoubleTap() },
                         onTap = { onTapChrome() },
                     )
                 },

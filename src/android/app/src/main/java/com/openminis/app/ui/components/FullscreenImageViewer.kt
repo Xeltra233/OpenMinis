@@ -18,7 +18,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -43,7 +42,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -180,9 +178,10 @@ fun FullscreenImageViewer(
             onDispose { /* dialog window is going away — nothing to restore */ }
         }
 
-        var scale by remember { mutableFloatStateOf(1f) }
-        var offsetX by remember { mutableFloatStateOf(0f) }
-        var offsetY by remember { mutableFloatStateOf(0f) }
+        // [T-viewer-drag-speed] Shared zoom/pan state and gesture maths, see
+        // ZoomPanTransform. This viewer is its own dialog rather than a pager page,
+        // but it uses the same detector so both viewers cannot disagree.
+        var transform by remember { mutableStateOf(ZoomPanTransform()) }
         var showChrome by remember { mutableStateOf(true) }
 
         Box(
@@ -198,32 +197,22 @@ fun FullscreenImageViewer(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer(
-                        scaleX = scale,
-                        scaleY = scale,
-                        translationX = offsetX,
-                        translationY = offsetY,
+                        scaleX = transform.scale,
+                        scaleY = transform.scale,
+                        translationX = transform.offsetX,
+                        translationY = transform.offsetY,
                     )
                     .pointerInput(Unit) {
-                        detectTransformGestures { _, pan, zoom, _ ->
-                            scale = (scale * zoom).coerceIn(1f, 8f)
-                            if (scale > 1f) {
-                                offsetX += pan.x
-                                offsetY += pan.y
-                            } else {
-                                offsetX = 0f
-                                offsetY = 0f
-                            }
-                        }
+                        detectViewerGestures(
+                            isZoomed = { transform.isZoomed },
+                            onGesture = { panX, panY, zoom ->
+                                transform = transform.gestureBy(panX, panY, zoom)
+                            },
+                        )
                     }
                     .pointerInput(Unit) {
                         detectTapGestures(
-                            onDoubleTap = {
-                                if (scale > 1f) {
-                                    scale = 1f; offsetX = 0f; offsetY = 0f
-                                } else {
-                                    scale = 2.5f
-                                }
-                            },
+                            onDoubleTap = { transform = transform.toggledByDoubleTap() },
                             onTap = { showChrome = !showChrome },
                         )
                     },

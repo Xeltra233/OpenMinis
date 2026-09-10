@@ -368,3 +368,26 @@
   2. CI 解析逻辑本地模拟：`Determine Version` 的 grep 表达式对当前分支输出 `1.13-1.2`；
   3. 远端 Release：`v1.13-1.2` 的 asset `OpenMinis-1.13-1.2-release.apk` / `debug.apk` 下载后 `aapt2 dump badging` 校验内嵌版本号与 tag 一致。
 - **回滚**：若 CI 版本注入失效，回退方案是手工修改 `build.gradle.kts` 中的字面量并递增 `versionCode` 后重新打 tag（tag 不可强制覆盖，需 use 新后缀版本号）。
+
+---
+
+## 21. 全屏图片查看器手势修复：放大后拖拽跟手 + 适配视图恢复翻页 (Image Viewer Zoom/Pan Gesture Fix)
+- **问题现象**（用户报告）：点开 AI 返回的图片进入全屏查看后，把图片放大（双击 2.5x 或捏合）再拖拽，图片移动明显慢于手指；模拟器真手势实测：300 px 手指位移只带来 110 px 图片位移（比例 0.37 ≈ 1/2.5）。
+- **附带发现**（同一手势块）：在未放大的适配（Fit）视图下左右滑动**完全无法翻页**——同目录双图 gallery 一次都切不过去，因为内层手势把整个滑动序列吃掉了。
+- **根因分析**：
+  1. **拖拽速度**：`detectTransformGestures` 回调中的 `pan` 是**局部（层内）坐标**——`Modifier.graphicsLayer(scaleX = scale)` 位于 `pointerInput` **外层**，指针管线会先做该图层变换的逆变换，所以 `scale = 2.5` 时 300 px 手指位移只上报 120 px；而同一个 `graphicsLayer` 的 `translationX/Y` 是**父坐标（屏幕）像素**，不受 scale 影响。原实现 `offsetX += pan.x` 缺少 `× scale` 补偿，图片因此以 1/scale 的速度移动。
+  2. **翻页被吞**：`detectTransformGestures` 一旦超过 touch slop 就**无条件 consume** 每个样本（与回调如何使用无关）；它嵌套在 `HorizontalPager` 的页面里，父级 pager 永远收不到未被消费的事件 → 适配视图下无法翻页。「放大时阻止翻页」其实是这个副作用的副产品。
+- **修复方案**：
+  1. 新增共享状态与手势数学 `src/android/app/src/main/java/com/openminis/app/ui/components/ZoomPanTransform.kt`：
+     - `ZoomPanTransform(scale, offsetX, offsetY)` 与 `gestureBy(panX, panY, zoom)`：平移量按**当前** scale 补偿后累加（当前 scale 才是指针管线做逆变换时使用的那一档），缩放夹在 `1f..8f`，缩回 1x 时偏移自动归零居中；
+     - `toggledByDoubleTap()`：双击在 1x 与 2.5x 之间切换并复位偏移；
+     - `detectViewerGestures(isZoomed, onGesture)`：替代框架探测器——只有**放大状态下的平移**或**任意多指手势**（捏合放大）才 consume；适配视图下的单指横滑**不消费**并直接交还给父级 pager。
+  2. `ImageGalleryViewer.kt`（聊天图片 / 用户气泡附件 / 文件预览多图 gallery）与 `FullscreenImageViewer.kt`（输入框粘贴、拍照图片查看器）改为共用上述状态与探测器，避免两份拷贝再次分叉。
+  3. 新增单测 `src/android/app/src/test/java/com/openminis/app/ui/components/ZoomPanTransformTest.kt`（7 例）：把设备上量到的「300 px → 120 px 局部位移」场景固化为 `= 300 px` 的回归断言，并覆盖 1:1 补偿、8x 夹取、缩回 1x 归零、双击切换。
+- **验证证据**（同一模拟器、同一测试图，RED → GREEN 均为 `adb shell input swipe` 真手势 + 截图模板匹配量化）：
+  1. 修复前（`v1.13-1.2` 装机版）：双击 2.5x 后拖拽 300 px → 位移 110 px（比例 0.37，模板匹配 sse = 0.0）；
+  2. 修复后（本提交构建，`adb install -r` 就地升级且 `firstInstallTime` 未变）：同样双击 2.5x 拖拽 300 px → 位移 275 px（比例 0.92，差额来自触摸 slop）；
+  3. 修复前：适配视图横滑后截图与滑动前**字节完全一致**（未翻页）；修复后：B 图 → A 图翻页成功，反向滑动也能回到 B；
+  4. 放大状态下朝「下一页」方向横滑仍**不翻页**（截图仍是当前图，同时 61.2% 像素发生变化 = 确实在平移）；双击复位后的视图与放大前的适配视图字节一致；
+  5. 单测：`ZoomPanTransformTest` 7/7 通过；全量 `:app:testDebugUnitTest` 1257 tests / 0 failures / 0 errors（140 suites）。
+- **影响范围与回滚**：仅影响两个全屏图片查看器的状态、手势与绘制参数；无数据结构、无存储、无网络、无版本号变更。回滚可整体还原 `ImageGalleryViewer.kt` / `FullscreenImageViewer.kt` 并删除新增的 `ZoomPanTransform.kt` 与其单测；旧版缺陷行为为「放大后拖拽速度 = 手指速度 ÷ 缩放倍数」与「适配视图无法翻页」。

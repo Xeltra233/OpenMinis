@@ -64,6 +64,10 @@ git merge upstream/main
 8. **DebugServer 兼容性与稳健性** (`debug/DebugServer.kt` / `debug/DebugRPCHandler.kt`)：
    - 保留 `readAtMost` 分块读取（**不要**使用 `InputStream.readNBytes`：Android 13（API 33）才提供，API 28 设备会抛 `NoSuchMethodError`）；
    - 保留 `SupervisorJob` + `catch (t: Throwable)` + 单请求 `withTimeoutOrNull`，避免单个异常请求取消作用域后整个 Debug 服务静默失效。
+9. **全屏图片查看器的缩放/平移手势** (`ui/components/ZoomPanTransform.kt` / `ImageGalleryViewer.kt` / `FullscreenImageViewer.kt`)：
+   - 保留 `ZoomPanTransform.gestureBy` 中的 `× scale` 补偿：`pan` 来自 `graphicsLayer` **内层**的 pointer 坐标（已被 scale 逆变换），而同一个 `graphicsLayer` 的 `translationX/Y` 是**父坐标像素**，漏掉补偿会让放大后的拖拽速度变成手指速度 ÷ 缩放倍数（`1.13-1.2` 的真实缺陷，详见 `CHANGELOG.md` 第 21 节）；
+   - 保留 `detectViewerGestures`（**不要**换回 `detectTransformGestures`）：框架探测器一旦超过 touch slop 就无条件 consume，嵌在 `HorizontalPager` 里会让适配视图的左右翻页彻底失效；
+   - 两个查看器必须共用同一份状态对象与手势探测器，不要在任一侧单独复制手势数学。
 
 ---
 
@@ -83,6 +87,7 @@ cd src/android
 - `OpenAIProviderTest`
 - `MemoryRepositoryFilterTest`（记忆文件白名单与数据安全契约）
 - `SystemPromptRepositoryTest`（系统提示词独立仓储与迁移）
+- `ZoomPanTransformTest`（图片查看器缩放平移补偿与翻页手势契约）
 
 ### 步骤 B：本地编译 APK
 ```bash
