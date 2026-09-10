@@ -55,6 +55,15 @@ git merge upstream/main
 6. **Rootfs 镜像、PRoot 与 rclone 资产** (`libproot.so` / `proot-aarch64` / `rclone.aar` / `alpine-minirootfs.tar.gz` / `RootfsManager.kt`)：
    - 保持 `libproot.so`、`proot-aarch64`、`rclone.aar` 与 `alpine-minirootfs.tar.gz` 在 Git 中追踪；
    - 保持 `RootfsManager.kt` 中的清华源/阿里源在线下载自愈兜底机制。
+7. **记忆文件可见性与数据安全** (`MemoryRepository.kt` / `MemoryManagementScreen.kt`)：
+   - 保留 `listAllFiles()` 的白名单语义：`GLOBAL.md`（常驻）+ 存在时的 `SOUL.md` + 每日日志（`^\d{4}-\d{2}-\d{2}\.md$`）；
+   - **不要**把 `SOUL.md` 排除出记忆列表（`1.13-1.1` 曾因正则白名单过严导致「`soul.md` 没了」的可见性回归，详见 `CHANGELOG.md` 第 18 节）；
+   - 保留 `PROMPT_FILES` 在列表/搜索/保存/删除四层的排除逻辑，避免系统提示词污染记忆列表；
+   - 保留 `canDelete`（`GLOBAL.md` / `SOUL.md` 不可删除）、`readFileOrNull` 的「缺失 vs 不可读」区分、编辑页读取失败禁用保存、以及 `*.tmp` + rename 的原子写入；
+   - 这些不变量是防止用户唯一副本被覆盖为空文件的最后防线，合并冲突时不得回退为 `readFile` 返回 `""` 的旧实现。
+8. **DebugServer 兼容性与稳健性** (`debug/DebugServer.kt` / `debug/DebugRPCHandler.kt`)：
+   - 保留 `readAtMost` 分块读取（**不要**使用 `InputStream.readNBytes`：Android 13（API 33）才提供，API 28 设备会抛 `NoSuchMethodError`）；
+   - 保留 `SupervisorJob` + `catch (t: Throwable)` + 单请求 `withTimeoutOrNull`，避免单个异常请求取消作用域后整个 Debug 服务静默失效。
 
 ---
 
@@ -72,6 +81,8 @@ cd src/android
 - `AgentTodoTaskGoalTest`
 - `SSHServerModelTest`
 - `OpenAIProviderTest`
+- `MemoryRepositoryFilterTest`（记忆文件白名单与数据安全契约）
+- `SystemPromptRepositoryTest`（系统提示词独立仓储与迁移）
 
 ### 步骤 B：本地编译 APK
 ```bash
@@ -84,7 +95,7 @@ cd src/android
    - **基础原则**：版本号前段完全跟随上游版本号，后段以短横线 `-` 衔接二开专属后缀版本（格式为 `<上游版本>-<二开版本>`，如 `1.13-1.0`）。
    - **新版本重算机制**：每当合并上游发布的新基础版本（如上游从 `1.13` 升级到 `1.14`），二开后缀**必须重新从 `-1.0` 起算**（即版本号重置为 `1.14-1.0`）。
    - **同版迭代机制**：若上游版本未变，二开自身的功能增补或修复仅递增后缀（例如：`1.13-1.0` -> `1.13-1.1` -> `1.13-1.2`）。
-   - **文件修改**：更新 `src/android/app/build.gradle.kts` 中的 `versionName`（如 `"1.13-1.0"`）和递增 `versionCode`。
+   - **文件修改**：递增 `src/android/app/build.gradle.kts` 中的 `versionCode`，并同步 `versionName` 字面量（如 `"1.13-1.2"`）。该字面量只是**本地回退值**：CI 会用 Release tag 的版本号通过 `-Pminis.versionName=<tag 版本>` 注入构建，从而避免出现「tag 是 `1.13-1.1`、APK 内嵌 `1.13-1.0`」的漂移。
 
 2. **推送分支与发布 Tag**：
 ```bash
@@ -93,7 +104,13 @@ git merge sync-upstream-$(date +%Y%m%d)
 git push origin main
 
 # 打上对应的二开版本 Tag 触发 GitHub Actions 自动 Release：
-git tag v1.13-1.0
-git push origin v1.13-1.0
+git tag v1.13-1.2
+git push origin v1.13-1.2
 ```
-GitHub Actions 会自动提取该版本号，构建 `OpenMinis-1.13-1.0-release.apk` 与 `debug.apk`，并在 GitHub Releases 发布带版本号的正式 Release。
+GitHub Actions 会自动提取该版本号，构建 `OpenMinis-1.13-1.2-release.apk` 与 `debug.apk`，并在 GitHub Releases 发布带版本号的正式 Release。
+
+**发布后必须校验产物一致性**（版本名与实际 APK 不能只靠 Release 标题判断）：
+```bash
+aapt2 dump badging OpenMinis-1.13-1.2-release.apk | head -1
+# 期望输出：package: name='com.openminis.app' versionCode='27' versionName='1.13-1.2'
+```

@@ -5,8 +5,10 @@ import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.PrintWriter
 import java.net.ServerSocket
 import java.net.Socket
@@ -24,6 +26,13 @@ class DebugServer(
 ) {
     companion object {
         private const val TAG = "DebugServer"
+
+        /**
+         * [T-debugserver-resilience] Upper bound on a single RPC before the server
+         * answers with an error instead of leaving the caller hanging forever.
+         * Generous enough for screenshot/capture work, short enough to fail loudly.
+         */
+        private const val REQUEST_TIMEOUT_MS = 30_000L
 
         /**
          * [T-android-debugserver-auth] Remote-connection auth decision, kept
@@ -55,7 +64,11 @@ class DebugServer(
 
     private var serverSocket: ServerSocket? = null
     private var acceptJob: Job? = null
-    private val scope = CoroutineScope(Dispatchers.IO)
+    // [T-debugserver-resilience] SupervisorJob: a failed connection handler must
+    // never take the accept loop down with it. Without this, ONE unhandled error in
+    // ONE request killed the whole scope and the server kept the port bound while
+    // answering nothing — every later call timed out until the app was restarted.
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val rpcHandler = DebugRPCHandler(context)
 
     /**
@@ -101,12 +114,16 @@ class DebugServer(
                     try {
                         val client = ss.accept()
                         launch { handleConnection(client) }
-                    } catch (e: Exception) {
-                        if (!stopped) Log.w(TAG, "Accept error: ${e.message}")
+                    } catch (t: Throwable) {
+                        // [T-debugserver-resilience] Throwable, not Exception: an Error
+                        // (StackOverflowError / OutOfMemoryError / linkage errors) used to
+                        // escape this catch, fail the loop coroutine and silently retire the
+                        // whole server. The loop must survive anything the accept path throws.
+                        if (!stopped) Log.w(TAG, "Accept error", t)
                     }
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to start server on port $port: ${e.message}")
+            } catch (t: Throwable) {
+                Log.e(TAG, "Failed to start server on port $port: ${t.message}", t)
             }
         }
     }
@@ -120,7 +137,7 @@ class DebugServer(
         Log.i(TAG, "Server stopped")
     }
 
-    private fun handleConnection(socket: Socket) {
+    private suspend fun handleConnection(socket: Socket) {
         socket.use { s ->
             try {
                 s.soTimeout = 30_000
@@ -138,6 +155,9 @@ class DebugServer(
                     return
                 }
                 val method = parts[0]
+                // [T-debugserver-resilience] Log every request line + method so a
+                // silent death is attributable in logcat from the device alone.
+                Log.i(TAG, "$method ${parts.getOrNull(1) ?: ""}")
                 // [T-android-debugserver-skill] Path (query stripped) so the
                 // unauthenticated GET skill routes can be dispatched.
                 val path = parts.getOrNull(1)?.substringBefore('?') ?: "/"
@@ -251,14 +271,32 @@ class DebugServer(
                     totalRead += n
                 }
                 val jsonBody = String(body, 0, totalRead, Charsets.UTF_8)
-
-                val responseJSON = runBlocking {
-                    rpcHandler.handle(jsonBody)
-                }
+                // [T-debugserver-resilience] Run the (blocking) handler on a child
+                // coroutine and await it under a timeout. `await()` is a real
+                // suspension point, so the timeout fires even though handle() itself
+                // blocks — wrapping handle() directly in withTimeoutOrNull would only
+                // time out AFTER it returned, which is useless.
+                val handled = scope.async { rpcHandler.handle(jsonBody) }
+                val responseJSON = withTimeoutOrNull(REQUEST_TIMEOUT_MS) {
+                    handled.await()
+                } ?: rpcHandler.errorJSON(
+                    -32000,
+                    "Request timed out after ${REQUEST_TIMEOUT_MS}ms",
+                )
 
                 sendResponse(writer, 200, responseJSON)
-            } catch (e: Exception) {
-                Log.w(TAG, "Connection error: ${e.message}")
+            } catch (t: Throwable) {
+                // [T-debugserver-resilience] Throwable + stack: the previous
+                // "catch (e: Exception) { Log.w(TAG, \"Connection error: ${e.message}\") }"
+                // swallowed the cause of a dead connection and printed no trace, which is
+                // why a single failing request was undiagnosable from logcat.
+                Log.w(TAG, "Connection error", t)
+                runCatching {
+                    // Fresh writer off the socket: the `writer` above is scoped to the try
+                    // block and may not exist if the failure happened early.
+                    val w = PrintWriter(s.getOutputStream(), true)
+                    sendResponse(w, 500, rpcHandler.errorJSON(-32603, "Internal error: ${t.message}"))
+                }
             }
         }
     }

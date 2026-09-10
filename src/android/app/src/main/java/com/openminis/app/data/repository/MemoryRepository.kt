@@ -22,6 +22,22 @@ class MemoryRepository(private val memoryDir: File) {
         private const val TAG = "MemoryRepository"
         val DAILY_LOG_PATTERN = Regex("""^\d{4}-\d{2}-\d{2}\.md$""")
         private const val GLOBAL_FILE = "GLOBAL.md"
+        /**
+         * Personality / identity file. Lives in the SAME directory as GLOBAL.md
+         * (see SoulStore) and is injected into the system prompt on every
+         * request. Public so the Settings UI and callers can name it without
+         * re-declaring the literal.
+         */
+        const val SOUL_FILE = "SOUL.md"
+        /**
+         * [T-memory-list-soul-visible] System-prompt files that must never be
+         * listed as memory. They live in `minis-global/prompts/` now
+         * (SystemPromptRepository); the names are enforced here too because a
+         * legacy install can still carry copies in the memory directory until
+         * the one-time migration deletes them, and a leftover copy must not
+         * reappear in the Settings list in the meantime.
+         */
+        val PROMPT_FILES = setOf("SYSTEM.md", "APPEND_SYSTEM.md", "APPEND.SYSTEM.md")
         private const val MAX_INJECT_LINES = 200
         // memory_get full-dump (no keywords): cap at 500 lines — matches iOS
         // `maxTotalLines = 500` in AIChatViewModel+MemoryTools.swift.
@@ -348,10 +364,38 @@ class MemoryRepository(private val memoryDir: File) {
         val modifiedDate: String,
         val fileSize: String,
         val preview: String,
+        /**
+         * False for files the Settings list must not offer a delete action for.
+         *
+         * GLOBAL.md and SOUL.md are both user-authored but load-bearing: GLOBAL.md
+         * is the user-maintained global memory, SOUL.md is the personality / identity
+         * file. A destructive tap on either one loses content the user cannot get
+         * back (SoulStore only reseeds its DEFAULT_CONTENT, never the user's edits),
+         * so both are protected here instead of relying on the confirm dialog.
+         *
+         * Defaults to true so daily logs and any other listed file stay deletable.
+         */
+        val canDelete: Boolean = true,
     )
 
     /**
-     * List all memory files: GLOBAL.md first, then daily logs descending.
+     * List the user-visible memory files:
+     *
+     *   1. GLOBAL.md — always first, even when it does not exist yet, so the
+     *      entry point for creating it is never missing.
+     *   2. SOUL.md — the personality / identity file that lives in the same
+     *      directory and is injected into the system prompt on every request.
+     *   3. Daily logs (YYYY-MM-DD.md) — newest first.
+     *
+     * System-prompt files (SYSTEM.md / APPEND_SYSTEM.md / APPEND.SYSTEM.md) and
+     * any other stray file are deliberately excluded: they are not memory, and
+     * showing them here is what made users think the prompt files were part of
+     * the memory list in the first place.
+     *
+     * [T-memory-list-soul-visible] The previous daily-log-only whitelist dropped
+     * SOUL.md from this list entirely, which users read as "my SOUL.md is gone"
+     * even though the file was untouched on disk. Listing it is the fix; hiding
+     * the prompt files is what the whitelist was actually for.
      */
     fun listAllFiles(): List<MemoryFileInfo> {
         val dateFmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
@@ -367,7 +411,27 @@ class MemoryRepository(private val memoryDir: File) {
             modifiedDate = globalModDate,
             fileSize = formatFileSize(globalFile.length()),
             preview = firstContentLine(globalContent),
+            canDelete = false,
         ))
+
+        // SOUL.md second: personality / identity, same directory, injected
+        // into every system prompt. Listed so users can find and edit the file
+        // they (correctly) expect to see here — see [T-memory-list-soul-visible].
+        val soulFile = File(memoryDir, SOUL_FILE)
+        if (soulFile.exists()) {
+            val soulContent = try { soulFile.readText() } catch (_: Exception) { "" }
+            items.add(MemoryFileInfo(
+                name = SOUL_FILE,
+                isGlobal = false,
+                modifiedDate = dateFmt.format(Date(soulFile.lastModified())),
+                fileSize = formatFileSize(soulFile.length()),
+                preview = firstContentLine(soulContent),
+                // Editable but not deletable: SoulStore.ensureExists() would
+                // only ever reseed the factory personality, so a delete here
+                // is an unrecoverable loss of user-authored content.
+                canDelete = false,
+            ))
+        }
 
         // Daily logs sorted descending
         val dailyFiles = memoryDir.listFiles()
@@ -390,25 +454,78 @@ class MemoryRepository(private val memoryDir: File) {
     }
 
     fun loadGlobalMd(): String {
-        val file = File(memoryDir, GLOBAL_FILE)
-        return if (file.exists()) try { file.readText() } catch (_: Exception) { "" } else ""
+        return readFileOrNull(GLOBAL_FILE) ?: ""
     }
 
     fun saveGlobalMd(content: String) {
-        File(memoryDir, GLOBAL_FILE).writeText(content)
+        saveFile(GLOBAL_FILE, content)
     }
 
-    fun readFile(name: String): String {
+    /**
+     * Read a memory file, distinguishing "absent / empty" from "unreadable".
+     *
+     * Returns `""` when the file does not exist yet (a legitimate empty
+     * state: GLOBAL.md is created on first save), and `null` when the file
+     * exists but reading it failed. Callers that are about to OVERWRITE the
+     * file must use this and refuse to save on `null` — otherwise a transient
+     * read error shows an empty editor and the next Save destroys the only
+     * copy of the user's content.
+     */
+    fun readFileOrNull(name: String): String? {
         val file = File(memoryDir, name)
-        return if (file.exists()) try { file.readText() } catch (_: Exception) { "" } else ""
+        if (!file.exists()) return ""
+        return try {
+            file.readText()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to read $name", e)
+            null
+        }
     }
 
+    /**
+     * [T-memory-atomic-write] Same read contract as [readFileOrNull] without
+     * the null: existing callers keep the historical "unreadable reads as
+     * empty" behaviour and are never forced to handle failure.
+     */
+    fun readFile(name: String): String {
+        return readFileOrNull(name) ?: ""
+    }
+
+    /**
+     * Write a memory file atomically: content lands in `<name>.tmp` first and
+     * is then renamed over the target, so a crash or I/O error mid-write can
+     * never leave a half-written file where the user's only copy used to be.
+     * Mirrors SoulStore.save().
+     *
+     * Throws on failure (the caller surfaces the error) — a failed write must
+     * never look like a successful save.
+     */
     fun saveFile(name: String, content: String) {
-        File(memoryDir, name).writeText(content)
+        // [T-memory-list-soul-visible] The memory directory is for memory:
+        // GLOBAL.md, SOUL.md, and the daily logs. Refusing the system-prompt
+        // names here enforces that from the write side as well, so no caller
+        // can recreate the pollution the Settings whitelist hides.
+        if (name in PROMPT_FILES) {
+            throw IllegalArgumentException("$name is a system prompt file, not memory")
+        }
+        val target = File(memoryDir, name)
+        target.parentFile?.mkdirs()
+        val tmp = File(target.parentFile, "${target.name}.tmp")
+        tmp.writeText(content)
+        if (!tmp.renameTo(target)) {
+            // Fallback for filesystems that refuse a replacing rename. The
+            // target is never deleted first, so this cannot lose the file
+            // outright; unlike the rename path it is not crash-atomic, which
+            // is acceptable because the primary path is the on-device one
+            // (ext4/f2fs rename over an existing file is atomic).
+            target.writeText(content)
+            tmp.delete()
+        }
     }
 
     fun deleteFile(name: String): Boolean {
         if (name == GLOBAL_FILE) return false // Cannot delete GLOBAL.md
+        if (name == SOUL_FILE) return false // Cannot delete SOUL.md (see canDelete)
         return File(memoryDir, name).delete()
     }
 

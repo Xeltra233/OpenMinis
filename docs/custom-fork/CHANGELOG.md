@@ -296,3 +296,75 @@
   - 在 BlueStacks 5 模拟器上实机验证升级迁移：成功将旧环境中的追加提示词自动迁移并清理旧目录；
   - 进入“設定 -> 記憶 -> 檔案”复测：原本显示的重复提示词（`APPEND_SYSTEM.md` 和 `APPEND.SYSTEM.md`）彻底消失，仅展示 `GLOBAL.md`，界面完全净化；
   - 重新编辑并保存系统提示词与追加提示词，再次检查记忆列表，确认绝不再被污染，且聊天注入正常生效。
+
+---
+
+## 18. 记忆文件可见性回归修复与数据安全加固 (Memory File Visibility Regression & Data-Loss Hardening)
+- **问题与用户反馈**：
+  1. 升级到 `1.13-1.1` 后，用户反馈「`soul.md` 没了」：进入「設定 -> 記憶 -> 檔案」看不到 `SOUL.md`，但磁盘上 `minis-global/memory/SOUL.md` 的内容完好（358 B），属于**纯 UI 可见性回归，并非文件被删除**；
+  2. 用户同时反馈「之前设置的 `global.md` 内容没了」，需要定位真正会造成内容丢失的代码路径并封堵，而不是归因于用户操作。
+- **根因分析**：
+  1. **SOUL.md 被正则白名单误伤**：第 17 节把 `MemoryRepository.listAllFiles()` / `getMemory()` / `searchMemory()` 的过滤条件收紧为 `DAILY_LOG_PATTERN = ^\d{4}-\d{2}-\d{2}\.md$`。该白名单只放行 `GLOBAL.md` 与严格日期命名的每日日志，`SOUL.md` 既不在正则内、也不等于 `GLOBAL.md`，于是被整体过滤掉。磁盘文件与系统提示词注入链路（`SoulStore` -> `buildSystemPrompt`）均未受影响；
+  2. **唯一可造成 GLOBAL.md 内容丢失的真实路径**：`MemoryRepository.readFile` 把任何读取失败吞成空字符串 `""`，编辑器据此显示为空白；用户按下保存时就会把**唯一副本**覆盖为空文件。修复前的 `readFile` 无法区分「文件不存在/为空」与「读取失败」；
+  3. **删除即不可恢复**：`SoulStore` 只会在文件缺失时重新写入 `DEFAULT_CONTENT`，一旦 `SOUL.md` / `GLOBAL.md` 被删除，用户的个性化内容无法找回；
+  4. 记忆目录（`minis-global/memory`）自基线以来未变更，升级流程本身不会删除该目录——已通过模拟器原地覆盖安装（`adb install -r`，`firstInstallTime` 保持不变）实测确认。
+- **修复方案**：
+  1. **明确白名单语义（列表层）**：`listAllFiles()` 固定为 `GLOBAL.md`（常驻，缺失也显示）+ 存在时的 `SOUL.md` + 每日日志（按日期倒序）；系统提示词文件 `PROMPT_FILES = {SYSTEM.md, APPEND_SYSTEM.md, APPEND.SYSTEM.md}` 在**列表、搜索、保存、删除**四个层面全部排除，保持第 17 节的净化目标不回退；
+  2. **不可删除保护**：`MemoryFileInfo` 新增 `canDelete`；UI 仅在 `canDelete = true` 时渲染删除按钮；`deleteFile()` 在数据层直接拒绝 `GLOBAL.md` 与 `SOUL.md`（UI 与仓储双重保护），每日日志仍可删除；
+  3. **读写语义分离**：新增 `readFileOrNull(name)`——`null` = 不可读、`""` = 不存在/空；编辑页在读取失败时禁用保存按钮并提示 `memory_editor_load_failed`，杜绝「读取失败 -> 空白编辑器 -> 保存覆盖唯一副本」的路径；
+  4. **原子写入**：`saveFile()` 改为先写 `*.tmp` 再 `renameTo` 覆盖（失败回退原地写），避免写入中断产生半截文件；`saveGlobalMd` / `loadGlobalMd` 统一走同一套读写路径；
+  5. **版本号单一来源**：CI 在构建时把 Release tag 的版本号通过 `-Pminis.versionName` 注入 APK，避免再出现「tag 是 1.13-1.1、APK 内嵌 1.13-1.0」的漂移（见第 20 节）。
+- **修改文件列表**：
+  1. `src/android/app/src/main/java/com/openminis/app/data/repository/MemoryRepository.kt`（白名单语义、`SOUL_FILE`/`PROMPT_FILES`/`canDelete`、`readFileOrNull`、原子写入、删除保护）
+  2. `src/android/app/src/main/java/com/openminis/app/ui/settings/MemoryManagementScreen.kt`（删除按钮按 `canDelete` 渲染、编辑页读取失败禁用保存并提示）
+  3. `src/android/app/src/main/res/values/strings.xml`、`values-zh/strings.xml`、`values-zh-rTW/strings.xml`（新增 `memory_editor_load_failed`）
+  4. `src/android/app/src/test/java/com/openminis/app/data/repository/MemoryRepositoryFilterTest.kt`（重写为 7 条契约测试）
+- **回归测试与验证证据**：
+  1. **单元测试（当前工作区实跑）**：`cd src/android && ./gradlew :app:testDebugUnitTest` -> `BUILD SUCCESSFUL`，**1250 个测试全部通过、0 失败**；`MemoryRepositoryFilterTest` 覆盖：`GLOBAL.md` + `SOUL.md` + 每日日志三类可见、`SOUL.md` 在 `GLOBAL.md` 缺失时仍可见、`searchMemory` 只搜 `GLOBAL.md` 与每日日志、原子写入不留 `.tmp`、拒绝写入系统提示词名、`readFileOrNull` 区分缺失与不可读、`deleteFile` 拒绝 `GLOBAL.md`/`SOUL.md` 但可删每日日志；
+  2. **模拟器红态复现（修复前 1.13-1.0）**：「設定 -> 記憶」只显示 `GLOBAL.md 86 B`，磁盘上存在的 `SOUL.md 358 B` 不显示；
+  3. **模拟器绿态验收（修复后 1.13-1.2，原地覆盖安装）**：
+     - `adb install -r` 覆盖安装，`versionCode 26 -> 27`、`versionName 1.13-1.0 -> 1.13-1.2`，`firstInstallTime` 保持 `2026-09-08 23:00:52`（**未卸载、未清数据**）；
+     - `minis-global/memory/GLOBAL.md`（86 B）与 `SOUL.md`（358 B）的大小与修改时间均未变化；
+     - 打开 `GLOBAL.md` 编辑器：升级前写入的内容完整显示；追加一行并保存后，磁盘内容 = 旧内容 + 新行（**未被截断**），界面提示「已儲存」；
+     - 打开 `SOUL.md` 编辑器：内容完整可读；
+     - 强制停止并重启 App 后复查：`記憶` 列表显示 `GLOBAL.md`（103 B，含新增行）与 `SOUL.md`（358 B），内容持久化；
+     - `GLOBAL.md` / `SOUL.md` 行右侧只有箭头、**没有删除按钮**（每日日志行仍可删除）。
+- **升级与迁移说明**：本次修复不改变任何存储路径与文件格式，`minis-global/memory/` 无需迁移；旧版本升级只需原地覆盖安装（`adb install -r` 或应用市场更新），**不要卸载或清除数据**。用户此前「看不到 SOUL.md」的文件一直在磁盘上，升级后自动重新出现在列表中，无需任何手工操作。
+- **版本与回滚**：修复随 `v1.13-1.2` 发布。回滚方式为安装 `v1.13-1.1` 或 `v1.13-1.0` 的 APK（同一 `applicationId`，可原地覆盖）；由于数据结构未变，回滚不会造成数据损坏，但回滚后 `SOUL.md` 会重新从记忆列表中消失（文件仍在磁盘上）。
+
+---
+
+## 19. Debug 服务器稳健性与 Android 9 / API 28 读取崩溃修复 (Debug Server Resilience & API-28 readNBytes Crash)
+- **问题现象**：通过 `adb forward` 使用 Debug RPC（`debug.readFile` 等）时，调用一次 `debug.readFile` 会得到空响应；此后**所有** RPC（包括 `GET /` 健康检查）永久超时，端口仍处于监听状态，必须强制停止并重启 App 才能恢复。
+- **根因分析（两处叠加）**：
+  1. **API 兼容性**：`DebugRPCHandler.handleReadFile` 使用 `InputStream.readNBytes(int)`，该方法是 Java 9 / Android 13（API 33）新增 API。目标模拟器为 Android 9（API 28），运行时抛出 `java.lang.NoSuchMethodError: No virtual method readNBytes(I)[B in class Ljava/io/FileInputStream`；
+  2. **异常逃逸 + 作用域取消**：`NoSuchMethodError` 属于 `Error` 而非 `Exception`，逃出了连接处理的 `catch (e: Exception)`；同时 `DebugServer` 的协程作用域为 `CoroutineScope(Dispatchers.IO)`（**没有 `SupervisorJob`**），子协程失败会取消整个作用域的父 Job，导致 accept 循环终止——端口仍被占用，服务从此静默，且不会打印任何错误。
+- **修复方案**：
+  1. `DebugRPCHandler.kt` 新增私有 `readAtMost(stream, limit)`：以 64 KB 分块读取到 `ByteArrayOutputStream`，彻底移除对 `readNBytes` 的依赖（主源码中唯一一处 API 33+ 调用，已全量审计）；
+  2. `DebugServer.kt`：作用域改为 `CoroutineScope(Dispatchers.IO + SupervisorJob())`；accept 循环与连接处理均改为 `catch (t: Throwable)` 并打印完整堆栈；
+  3. 单个请求加 `withTimeoutOrNull(REQUEST_TIMEOUT_MS = 30_000L)`，避免请求永久占用连接；
+  4. 每个请求记录 `Log.i(TAG, "$method $path")`，处理失败时返回 HTTP 500 JSON（而不是直接断连），移除连接处理里的 `runBlocking`。
+- **验证证据**：
+  1. 修复前：受控探针脚本依次调用 `readFile` -> `ls` -> `viewTree` -> `appInfo` -> `GET /`，首调用返回「Remote end closed connection without response」，其余全部超时，服务进程仍在但 RPC 永久不可用；
+  2. 修复作用域/异常处理（`readAtMost` 尚未替换）时：`debug.readFile` 返回 HTTP 500 + JSON 错误，**端口与服务保持存活**，证明异常已被 containment；
+  3. 修复 `readAtMost` 后：同一探针序列 `readFile(GLOBAL.md)`、`readFile(SOUL.md)`、`readFile(probe.txt)`、`ls`、`writeFile`、`viewTree`、`appInfo` 全部成功返回，最终健康检查为 alive；设备日志中可见 `readNBytes` 的 `NoSuchMethodError` 堆栈（修复前）。
+- **修改文件列表**：
+  1. `src/android/app/src/main/java/com/openminis/app/debug/DebugRPCHandler.kt`
+  2. `src/android/app/src/main/java/com/openminis/app/debug/DebugServer.kt`
+- **影响范围与回滚**：DebugServer 只在 debug 构建中启动，不影响 release 产物；本次为纯加固与兼容性修复，无数据结构变更，回滚只需安装旧版本 APK。
+
+---
+
+## 20. 版本号单一来源与发布产物一致性 (Single-Source Version Stamping & Release Consistency)
+- **问题现象**：`v1.13-1.1` 的 GitHub Release 页面与 asset 文件名都是 `1.13-1.1`，但下载的 APK 内嵌 `versionName` 仍是 `1.13-1.0`（tag/产物漂移，用户无法凭系统设置判断实际版本）。
+- **根因分析**：`src/android/app/build.gradle.kts` 中的 `versionName` 是手写字面量，发版时只打了 tag 而没有同步递增；CI 仅执行打包，不把 tag 版本号注入构建。
+- **修复方案**：
+  1. `build.gradle.kts` 改为优先读取 `-Pminis.versionName`（CI 注入），缺省回退到仓库内字面量（保持**单行**便于 CI 解析）；`versionCode` 手工递增；
+  2. `.github/workflows/build-apk.yml` 的 `Determine Version` 步骤在无法解析版本号时直接 `::error::` 失败，不再静默使用错误版本；
+  3. Build 步骤把解析出的版本号以 `-Pminis.versionName=<version>` 传给 Gradle；
+  4. Release body 改为按实际版本号动态生成，并同步更新「本版修复」清单。
+- **验证证据**：
+  1. 本地构建：`./gradlew :app:assembleDebug -Pminis.versionName=1.13-1.2` -> `aapt2 dump badging` 输出 `versionCode='27' versionName='1.13-1.2'`；
+  2. CI 解析逻辑本地模拟：`Determine Version` 的 grep 表达式对当前分支输出 `1.13-1.2`；
+  3. 远端 Release：`v1.13-1.2` 的 asset `OpenMinis-1.13-1.2-release.apk` / `debug.apk` 下载后 `aapt2 dump badging` 校验内嵌版本号与 tag 一致。
+- **回滚**：若 CI 版本注入失效，回退方案是手工修改 `build.gradle.kts` 中的字面量并递增 `versionCode` 后重新打 tag（tag 不可强制覆盖，需 use 新后缀版本号）。

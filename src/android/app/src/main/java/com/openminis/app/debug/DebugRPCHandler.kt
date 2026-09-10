@@ -391,7 +391,7 @@ class DebugRPCHandler(private val context: Context) {
 
         val bytes = hostFile.inputStream().use { stream ->
             if (offset > 0) stream.skip(offset)
-            stream.readNBytes(limit)
+            readAtMost(stream, limit)
         }
 
         val isText = !forceBase64 && bytes.all {
@@ -410,6 +410,28 @@ class DebugRPCHandler(private val context: Context) {
             put("bytesRead", bytes.size)
             if (offset + bytes.size < fileSize) put("truncated", true)
         }
+    }
+
+    /**
+     * [T-android-debugserver-api28] Reads at most [limit] bytes without
+     * `InputStream.readNBytes`, which is Java 9 / Android 13 (API 33). On the
+     * Android 9 test image this method call threw
+     * `NoSuchMethodError: No virtual method readNBytes(I)[B in class
+     * Ljava/io/FileInputStream` — a LinkageError, so it bypassed the server's
+     * `catch (e: Exception)` and silently retired the debug server.
+     */
+    private fun readAtMost(stream: java.io.InputStream, limit: Int): ByteArray {
+        val chunk = 64 * 1024
+        val out = ByteArrayOutputStream(minOf(limit, chunk))
+        val buffer = ByteArray(chunk)
+        var remaining = limit
+        while (remaining > 0) {
+            val read = stream.read(buffer, 0, minOf(buffer.size, remaining))
+            if (read < 0) break
+            out.write(buffer, 0, read)
+            remaining -= read
+        }
+        return out.toByteArray()
     }
 
     // ── Logging ──────────────────────────────────────────────────────────────

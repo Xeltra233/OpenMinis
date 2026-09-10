@@ -767,6 +767,7 @@
     <string name="memory_delete_confirm_title">Delete %1$s?</string>
     <string name="memory_delete_confirm_text">This will permanently remove this memory log.</string>
     <string name="memory_editor_placeholder">Enter content…</string>
+    <string name="memory_editor_load_failed">Could not read this file, so saving is disabled to avoid overwriting it with empty content. Go back and try again.</string>
     <string name="perm_title">Permissions</string>
     <string name="perm_reset_all">Reset All</string>
     <string name="perm_reset_confirm_title">Reset All Permissions?</string>

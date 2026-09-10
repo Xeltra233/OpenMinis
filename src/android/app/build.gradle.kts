@@ -36,8 +36,20 @@ android {
         applicationId = "com.openminis.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 26
-        versionName = "1.13-1.0"
+        versionCode = 27
+        // [T-version-single-source] The release tag is the version of record.
+        // CI passes `-Pminis.versionName=<tag without the leading v>`, so the
+        // APK's embedded versionName can never drift from the tag again: the
+        // v1.13-1.1 release shipped an APK that still reported "1.13-1.0"
+        // because this literal was not bumped when the tag was cut. Local
+        // builds (no -P) fall back to the literal below.
+        //
+        // Bump policy (user-specified): keep the upstream base version and
+        // increment the trailing -N suffix for every fork release.
+        //
+        // Keep the literal on this single line: the CI "Determine Version" step
+        // greps the first `versionName =` line for its quoted fallback value.
+        versionName = (rootProject.findProperty("minis.versionName") as? String)?.trim()?.takeIf { it.isNotEmpty() } ?: "1.13-1.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

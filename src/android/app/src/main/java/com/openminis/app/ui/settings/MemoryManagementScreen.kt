@@ -124,7 +124,9 @@ fun MemoryManagementScreen(
                     MemoryFileRow(
                         file = file,
                         onClick = { onFileClick(file.name, file.isGlobal) },
-                        onDelete = if (!file.isGlobal) { { deleteFileName = file.name } } else null,
+                        // canDelete (not !isGlobal) — SOUL.md and GLOBAL.md are
+                        // both protected: see MemoryRepository.MemoryFileInfo.
+                        onDelete = if (file.canDelete) { { deleteFileName = file.name } } else null,
                     )
                     if (index < files.size - 1) {
                         HorizontalDivider(
@@ -292,6 +294,12 @@ fun MemoryFileEditScreen(
 ) {
     var content by remember { mutableStateOf("") }
     var saveError by remember { mutableStateOf<String?>(null) }
+    // [T-memory-atomic-write] Distinguishes "the file is empty" from "the file
+    // could not be read". A failed read used to render as an empty editor whose
+    // always-visible Save button then truncated the user's real content to
+    // nothing — the reported "my GLOBAL.md content disappeared" path. Null means
+    // unreadable: Save stays disabled and the error is shown instead.
+    var loadFailed by remember { mutableStateOf(false) }
     val context = LocalContext.current
     // [T-memory-save-toast-feedback] Confirm Save actually committed by
     // flashing a toast — previously the Save tap silently closed nothing,
@@ -302,9 +310,14 @@ fun MemoryFileEditScreen(
     val savedToastText = stringResource(R.string.memory_save_toast)
 
     LaunchedEffect(fileName) {
-        content = memoryRepository.readFile(fileName)
+        val loaded = memoryRepository.readFileOrNull(fileName)
+        if (loaded == null) {
+            loadFailed = true
+        } else {
+            content = loaded
+            loadFailed = false
+        }
     }
-
     Scaffold(
         topBar = {
             TopAppBar(
@@ -316,20 +329,25 @@ fun MemoryFileEditScreen(
                 },
                 actions = {
                     // [T-global-memory-save-always-visible] Always render Save —
-                    // no hasChanges gate (see KDoc above).
-                    MinisTextButton(onClick = {
-                        try {
-                            memoryRepository.saveFile(fileName, content)
-                            saveError = null
-                            android.widget.Toast.makeText(
-                                context,
-                                savedToastText,
-                                android.widget.Toast.LENGTH_SHORT,
-                            ).show()
-                        } catch (e: Exception) {
-                            saveError = e.message
-                        }
-                    }) {
+                    // no hasChanges gate (see KDoc above) — but never for a file
+                    // that failed to load: saving an editor that is empty only
+                    // because the read failed would destroy the real content.
+                    MinisTextButton(
+                        enabled = !loadFailed,
+                        onClick = {
+                            try {
+                                memoryRepository.saveFile(fileName, content)
+                                saveError = null
+                                android.widget.Toast.makeText(
+                                    context,
+                                    savedToastText,
+                                    android.widget.Toast.LENGTH_SHORT,
+                                ).show()
+                            } catch (e: Exception) {
+                                saveError = e.message
+                            }
+                        },
+                    ) {
                         Text("Save")
                     }
                 },
@@ -359,7 +377,14 @@ fun MemoryFileEditScreen(
             )
 
             // Footer text
-            if (isGlobal) {
+            if (loadFailed) {
+                Text(
+                    stringResource(R.string.memory_editor_load_failed),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            } else if (isGlobal) {
                 Text(
                     stringResource(R.string.memory_global_footer),
                     style = MaterialTheme.typography.bodySmall,
