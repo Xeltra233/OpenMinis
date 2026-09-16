@@ -391,3 +391,24 @@
   4. 放大状态下朝「下一页」方向横滑仍**不翻页**（截图仍是当前图，同时 61.2% 像素发生变化 = 确实在平移）；双击复位后的视图与放大前的适配视图字节一致；
   5. 单测：`ZoomPanTransformTest` 7/7 通过；全量 `:app:testDebugUnitTest` 1257 tests / 0 failures / 0 errors（140 suites）。
 - **影响范围与回滚**：仅影响两个全屏图片查看器的状态、手势与绘制参数；无数据结构、无存储、无网络、无版本号变更。回滚可整体还原 `ImageGalleryViewer.kt` / `FullscreenImageViewer.kt` 并删除新增的 `ZoomPanTransform.kt` 与其单测；旧版缺陷行为为「放大后拖拽速度 = 手指速度 ÷ 缩放倍数」与「适配视图无法翻页」。
+
+---
+
+## 22. 完整回复被误报「连接中断，此回复可能不完整」修复 (Terminal-Signal Null False Positive)
+- **问题现象**（用户报告）：AI 正常回复完毕、内容完整，气泡下方却出现红色提示「连接中断，此回复可能不完整。点击重试以继续。」并带继续/重试入口；实际并未断流。
+- **根因分析**：`ChatViewModel.runAgentLoop` 用 `turnFinishReason == null && 有可见内容` 判定断流（[T-android-silent-stream-drop]），而 `turnFinishReason` 只来自 `LLMStreamChunk.Finished`。三条「干净结束却携带 null」的路径都会误报：
+  1. **Chat Completions**：中继以 `data: [DONE]` 收尾，但把携带 `finish_reason` 的空 delta 收尾块丢掉了 —— [DONE] 本身是干净结束哨兵，旧代码仍 emit `Finished(null)`；
+  2. **Anthropic**：usage-only `message_delta`（没有 `stop_reason`）旧代码直接 emit `Finished(null)`，而协议真正的终止事件 `message_stop` 被完全忽略；
+  3. **消费端**：`turnFinishReason = chunk.stopReason` 会被后到的 null 覆盖，已捕获的具体 reason 可能被抹掉。
+- **修复方案**（`[T-android-done-without-finish-reason]` / `[T-android-anthropic-terminal-reason]` / `[T-android-terminal-reason-sticky]`，iOS 镜像 `[T-ios-anthropic-terminal-reason]`）：
+  1. `OpenAIProvider.kt`：`[DONE]` 分支在 `finishReason == null` 时按工具回合默认 `tool_calls`/`tool_use`，否则 `stop`（Responses 路径与 `status=completed` 同义）；新增 `sawResponsesFunctionCall` 记录工具项，因为 `responsesToolCalls` 在 `output_item.done` 已清空；
+  2. `AnthropicProvider.kt`：`message_delta` 仅在携带具体 `stop_reason` 时 emit Finished（不再发 null）；新增 `message_stop` 分支，未发射过具体 reason 时以 `tool_use`/`end_turn` 兜底收尾；`[DONE]` 分支同样兜底；
+  3. `ChatViewModel.kt`：`turnFinishReason` 改为粘性 —— 非空 reason 不再被后续 null 覆盖；
+  4. iOS `AnthropicAgentProvider.swift` 镜像同款行为：`messageDelta` 去重 + `messageStop` 兜底（`emittedDone`/`sawToolUse`）。
+  5. 断流检测**刻意保持**：既无哨兵（[DONE]/message_stop）又无 stop_reason 的流仍不发 Finished（保持 null → 中断提示），`StreamDropNoFinishTest` / `ResponsesApiFinishedTest` 既有契约不受影响。
+- **验证证据**：
+  1. 新增 `TerminalChunkWithoutReasonTest`（8 例）先 RED 后 GREEN：修复前 8 例中 7 例失败（`expected:<stop> but was:<null>`、`expected exactly one Finished chunk, got 2`、Responses 缺 `output_item.added` 时抛 TransientError 等），修复后 8/8 通过；
+  2. 邻接回归：`AnthropicProviderTest`(31) / `OpenAIProviderTest`(25) / `GeminiProviderTest`(24) / `ThinkPrefixStreamParserTest`(17) / `ResponsesApiFinishedTest`(4) / `ResponsesIncompletePartialTest`(6) / `StreamDropNoFinishTest`(2) 全部通过；
+  3. 全量 `:app:testDebugUnitTest`：1265 tests / 0 failures / 0 errors（141 suites）；`:app:assembleDebug` 成功产出 `app-debug.apk`（64.8 MB）。
+  4. iOS 侧仅在源码层镜像（本机无 macOS 工具链，未编译验证）。
+- **影响范围与回滚**：仅涉及流终止信号判定与 ChatViewModel 的单一赋值点；无数据结构、无存储、无网络协议变更。回滚可还原上述 4 个源文件并删除 `TerminalChunkWithoutReasonTest.kt`；回滚后的缺陷行为为「干净结束但终止信号为 null 时误报中断」。

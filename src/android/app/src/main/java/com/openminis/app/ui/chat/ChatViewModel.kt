@@ -8574,7 +8574,12 @@ Shared directory /var/minis/ (bidirectional read/write between shell and app):
                     }
                     is LLMStreamChunk.Finished -> {
                         // T321: stash for empty-turn diagnostic logging below.
-                        turnFinishReason = chunk.stopReason
+                        // [T-android-terminal-reason-sticky] A Finished chunk with a null
+                        // stopReason only means "no reason supplied" — it must never erase
+                        // a concrete reason already seen. Letting a later null overwrite one
+                        // turned a cleanly finished turn back into the red
+                        // "连接中断，此回复可能不完整" banner.
+                        if (chunk.stopReason != null) turnFinishReason = chunk.stopReason
                     }
                     is LLMStreamChunk.Started -> { /* no-op */ }
                     is LLMStreamChunk.MediaAttachment -> {

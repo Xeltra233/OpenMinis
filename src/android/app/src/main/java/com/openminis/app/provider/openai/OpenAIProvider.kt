@@ -932,6 +932,11 @@ class OpenAIProvider private constructor(
         var toolCallEventCount = 0
         var sawFinishReason = false
         var sawUsageBlock = false
+        // [T-android-done-without-finish-reason] Set when the Responses API streamed
+        // a function_call item. The [DONE] default below needs it because
+        // `responsesToolCalls` has already been drained at output_item.done by the
+        // time [DONE] arrives.
+        var sawResponsesFunctionCall = false
         // [T-android-responses-missing-finished] Hoisted out of the try block so
         // the stream tail can emit Finished for streams that end WITHOUT a
         // `data: [DONE]` sentinel — see the emission site after the read loop.
@@ -1007,7 +1012,22 @@ class OpenAIProvider private constructor(
                     if (sawReasoningField || reasoningAccum.isNotEmpty()) {
                         send(LLMStreamChunk.ReasoningContent(reasoningAccum.toString()))
                     }
-                    send(LLMStreamChunk.Finished(finishReason))
+                    // [T-android-done-without-finish-reason] `[DONE]` is the Chat
+                    // Completions sentinel for a CLEANLY completed stream, but the
+                    // chunk carrying `finish_reason` (an otherwise empty delta) is not
+                    // guaranteed to reach us — relays that drop it still send [DONE].
+                    // Passing that null through made runAgentLoop treat a complete
+                    // reply as a dropped connection: the red "连接中断，此回复可能不完整"
+                    // banner + Resume on a reply that had in fact finished. A clean
+                    // sentinel implies a concrete reason, defaulted the same way the
+                    // Responses path defaults status=completed. Tool turns keep their
+                    // tool-flavoured reason so they are never logged as a plain stop.
+                    val terminalReason = finishReason ?: when {
+                        isResponsesAPI && sawResponsesFunctionCall -> "tool_use"
+                        toolCallAccumulators.isNotEmpty() -> "tool_calls"
+                        else -> "stop"
+                    }
+                    send(LLMStreamChunk.Finished(terminalReason))
                     sentFinished = true
                     break
                 }
@@ -1141,6 +1161,11 @@ class OpenAIProvider private constructor(
                             val item = event.optJSONObject("item") ?: continue
                             val itemType = item.optString("type", "")
                             if (itemType == "function_call") {
+                                // [T-android-done-without-finish-reason] Remember that this
+                                // turn produced a tool call: the accumulator map is drained
+                                // right below, so the [DONE] default could no longer tell a
+                                // tool turn from a plain stop.
+                                sawResponsesFunctionCall = true
                                 val itemId = item.optString("id", "")
                                 val acc = responsesToolCalls.remove(itemId) ?: continue
                                 val argsStr = item.optString("arguments", acc.args.toString())

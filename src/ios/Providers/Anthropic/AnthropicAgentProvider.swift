@@ -288,6 +288,14 @@ final class AnthropicAgentProvider: AgentProvider {
                 }
                 var isThinkingBlock = false
                 var thinkingContent = ""
+                // [T-ios-anthropic-terminal-reason] A message_delta may be usage-only
+                // (no stop_reason), and the protocol's definitive clean end is
+                // message_stop. Track whether a terminal .done was already yielded so
+                // a completed message never ends with a nil stopReason — that nil is
+                // what the agent loop renders as "The connection dropped — this reply
+                // may be incomplete. Tap Resume to continue."
+                var emittedDone = false
+                var sawToolUse = false
 
                 do {
                     for try await response in stream {
@@ -349,6 +357,11 @@ final class AnthropicAgentProvider: AgentProvider {
 
                         case .contentBlockStop:
                             if let toolId = currentToolId, let toolName = currentToolName {
+                                // [T-ios-anthropic-terminal-reason] This turn produced a tool
+                                // call — the message_stop fallback below must not report a
+                                // plain endTurn, or the agent loop would break instead of
+                                // continuing the tool round-trip.
+                                sawToolUse = true
                                 let finalJson = currentToolJsonJoined()
                                 let args = Self.parseJsonToDict(finalJson)
                                 if args.isEmpty {
@@ -378,7 +391,7 @@ final class AnthropicAgentProvider: AgentProvider {
                             if let usage = response.usage {
                                 continuation.yield(.usage(usage.toLLMUsage()))
                             }
-                            if let stopReason = response.delta?.stopReason {
+                            if let stopReason = response.delta?.stopReason, !emittedDone {
                                 if !thinkingContent.isEmpty {
                                     continuation.yield(.reasoningContent(thinkingContent))
                                 }
@@ -392,6 +405,7 @@ final class AnthropicAgentProvider: AgentProvider {
                                 case "refusal": .refusal
                                 default: .endTurn
                                 }
+                                emittedDone = true
                                 continuation.yield(.done(stopReason: reason))
                             }
 
@@ -401,7 +415,18 @@ final class AnthropicAgentProvider: AgentProvider {
                             }
 
                         case .messageStop:
-                            break
+                            // [T-ios-anthropic-terminal-reason] The protocol's definitive
+                            // clean termination. A relay or upstream that omitted
+                            // stop_reason on every message_delta still proves the message
+                            // completed here, so close with a concrete reason instead of
+                            // leaving stopReason nil (which surfaced as the false
+                            // "reply may be incomplete" banner + Resume). Gated on
+                            // emittedDone: a stream that never sends message_stop is a real
+                            // drop and must stay nil so truncation remains detectable.
+                            if !emittedDone {
+                                emittedDone = true
+                                continuation.yield(.done(stopReason: sawToolUse ? .toolUse : .endTurn))
+                            }
                         }
                     }
                     continuation.finish()

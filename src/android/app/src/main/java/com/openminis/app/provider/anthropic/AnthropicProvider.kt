@@ -187,6 +187,13 @@ class AnthropicProvider(
         var currentToolId: String? = null
         var currentToolName: String? = null
         val toolInputBuffer = StringBuilder()
+        // [T-android-anthropic-terminal-reason] A message_delta may be usage-only
+        // (no stop_reason), and the protocol's definitive clean end is message_stop.
+        // Track what terminated the turn so a completed message never ends with a
+        // null stopReason — that null is what runAgentLoop reads as
+        // "连接中断，此回复可能不完整".
+        var sentFinished = false
+        var sawToolUse = false
 
         try {
             var line: String?
@@ -194,7 +201,17 @@ class AnthropicProvider(
                 val l = line ?: continue
                 if (!l.startsWith("data: ")) continue
                 val payload = l.removePrefix("data: ")
-                if (payload == "[DONE]") break
+                if (payload == "[DONE]") {
+                    // Some Anthropic-compatible relays append the OpenAI-style
+                    // sentinel instead of message_stop; treat it as a clean end too.
+                    if (!sentFinished) {
+                        sentFinished = true
+                        send(LLMStreamChunk.Finished(
+                            if (sawToolUse) "tool_use" else "end_turn"
+                        ))
+                    }
+                    break
+                }
 
                 val event = try { JSONObject(payload) } catch (_: Exception) { continue }
                 android.util.Log.d("ToolChain[Provider]", "RAW SSE: $payload")
@@ -240,6 +257,10 @@ class AnthropicProvider(
                     }
                     "content_block_stop" -> {
                         if (currentToolId != null && currentToolName != null) {
+                            // [T-android-anthropic-terminal-reason] This turn produced a
+                            // tool call — the message_stop fallback below must not report a
+                            // plain end_turn for it.
+                            sawToolUse = true
                             val args = try {
                                 JSONObject(toolInputBuffer.toString())
                             } catch (_: Exception) {
@@ -256,9 +277,29 @@ class AnthropicProvider(
                         event.optJSONObject("usage")?.let { usage ->
                             send(LLMStreamChunk.Usage(parseUsage(usage)))
                         }
+                        // [T-android-anthropic-terminal-reason] Usage-only deltas carry no
+                        // stop_reason. Emitting Finished(null) for them made a complete
+                        // reply look like a dropped connection; only a delta that names a
+                        // reason is terminal, anything else waits for message_stop below.
                         val stopReason = event.optJSONObject("delta")
                             ?.safeOptString("stop_reason", "")?.ifEmpty { null }
-                        send(LLMStreamChunk.Finished(stopReason))
+                        if (!sentFinished && stopReason != null) {
+                            sentFinished = true
+                            send(LLMStreamChunk.Finished(stopReason))
+                        }
+                    }
+                    "message_stop" -> {
+                        // [T-android-anthropic-terminal-reason] The protocol's definitive
+                        // clean termination: a relay that omitted stop_reason on every
+                        // message_delta still proves the message completed here, so close
+                        // with the tool-aware default instead of leaving stopReason null
+                        // (which surfaced as the false "incomplete reply" banner).
+                        if (!sentFinished) {
+                            sentFinished = true
+                            send(LLMStreamChunk.Finished(
+                                if (sawToolUse) "tool_use" else "end_turn"
+                            ))
+                        }
                     }
                 }
             }
