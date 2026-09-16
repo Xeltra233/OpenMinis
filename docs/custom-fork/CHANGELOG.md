@@ -424,12 +424,15 @@
   2. 工作流没有配置固定签名：`build.gradle.kts` 的 release/debug 两个 buildType 都使用默认 debug 签名配置，本地构建用本机 `~/.android/debug.keystore`，而 CI runner 每次运行都现场生成一把临时 keystore —— 于是 CI 包➔本地包、CI 包➔上一版 CI 包都无法覆盖安装。
 - **修复方案**：
   1. `Setup Android SDK` 显式 `packages: platform-tools`（platforms/build-tools/cmake 由下一步安装）；
-  2. 新增 `Restore stable Android debug keystore` 步骤：构建前把 Secret `ANDROID_DEBUG_KEYSTORE_BASE64`（本机 `~/.android/debug.keystore` 的 base64）还原到 runner 的 `~/.android/debug.keystore` 并打印证书指纹入日志；Secret 缺失时直接 `::error::` 失败，避免静默回到随机签名；
-  3. 版本 `1.13-1.4`（versionCode 29），Release 说明同步更新。
+  2. 新增 `Restore stable Android debug keystore` 步骤：构建前把 Secret `ANDROID_DEBUG_KEYSTORE_BASE64`（本机 `~/.android/debug.keystore` 的 base64）还原成文件并打印证书指纹入日志；Secret 缺失时直接 `::error::` 失败，避免静默回到随机签名；
+  3. **第二轮修正（关键）**：第一版把 keystore 还原到 `$HOME/.android/debug.keystore`（keytool 确认指纹正确），但 AGP 在 runner 上把默认 debug keystore 解析到了别的目录、直接现场生成了新 key（v1.13-1.4 首版 Release 证书 `d61852c2…`）。改为"显式指定，不依赖默认路径"：workflow 还原到 `$RUNNER_TEMP/minis-debug.keystore` 并导出 `MINIS_DEBUG_KEYSTORE_FILE`，`build.gradle.kts` 的 debug 签名配置读取该变量覆盖 `storeFile`（本地不设该变量，行为不变）；同时新增 `Verify APK signing identity` 步骤：用 apksigner 比对两个 APK 与 keystore 的证书指纹，不一致即构建失败，确保不可能再静默发布随机签名产物；
+  4. 版本 `1.13-1.4`（versionCode 29），Release 说明同步更新。
 - **验证证据**：
   1. 修复前：run 35098222133 失败于 `Setup Android SDK`（"Failed to find package 'tools'" / exit code 1）；修复后：run 35098718740 **success**（head 7697a06）；
-  2. 证书实测（`apksigner verify --print-certs`）：本机 keystore = `dist/OpenMinis-1.13-1.0` = `dist/OpenMinis-v1.13-1.1` = 本次本地构建 = `222995e0…bd9bb0`；CI `v1.13-1.3` = `afd606b2…1ebfd3`；CI `v1.13-1.2` = `47e52eac…d67542`；
-  3. 统一签名后打 tag `v1.13-1.4`，Release 产物证书应与 `222995e0…bd9bb0` 一致（见发布后回填）。
+  2. 证书实测（`apksigner verify --print-certs`）：本机 keystore = `dist/OpenMinis-1.13-1.0` = `dist/OpenMinis-v1.13-1.1` = 本地构建 = `222995e0…bd9bb0`；CI `v1.13-1.3` = `afd606b2…1ebfd3`；CI `v1.13-1.2` = `47e52eac…d67542`；
+  3. 第一轮修复后 tag `v1.13-1.4` 构建成功，但 Release 产物证书为 `d61852c2…bdcd4e`——证实 AGP 未使用还原到 `$HOME/.android` 的 keystore（step 日志同时显示该文件指纹确为 `22:29:95:E0…`）；
+  4. 第二轮修复后：main run 35101745161（head e76181c）**success**，下载产物实测 release/debug APK 证书均为 `222995e0…bd9bb0`；workflow_dispatch 重建 Release（run 35103004233）日志中 `Verify APK signing identity` 输出：`app-release.apk signed with the project keystore (222995e0…)`、`app-debug.apk signed with the project keystore (222995e0…)`；
+  5. Release `v1.13-1.4` 最终产物（下载后 apksigner 实测）：`OpenMinis-1.13-1.4-release.apk` 证书 `222995e0…bd9bb0`，sha256 `47b2eacf…e6ffdc`——与本机构建/已安装的 dist 版可覆盖升级。
 - **影响范围与回滚**：仅影响 CI 构建与产物签名，无业务代码变更。回滚：删除 keystore 还原步骤即可（将回到每跑一变的随机签名，装机会继续报签名不一致）；已安装旧 CI 版本（证书 `afd606b2…` / `47e52eac…` 等）的设备需一次性卸载后安装新包。
 
-> 2026-09-16 回填：v1.13-1.4 Release 产物证书校验结果待 CI 完成后补充。
+> 2026-09-16 回填：v1.13-1.4 Release 产物证书已校验为 `222995e0…bd9bb0`（详见上方证据 5）；CI 后续所有构建均经 `Verify APK signing identity` 门禁。
