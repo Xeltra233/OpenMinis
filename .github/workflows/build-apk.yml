@@ -41,9 +41,10 @@ jobs:
 
       # [CI 统一签名] CI 以前用 runner 上临时生成的 debug keystore 签名，每次发布的
       # APK 证书都不同——既不能覆盖本地构建，也不能覆盖上一版 Release（装机报
-      # 「签名不一致」）。构建前把固定 keystore 还原到 ~/.android/debug.keystore：
-      # Gradle 的 release/debug 两个 buildType 都使用默认 debug 签名配置，
-      # 因此 CI 产物与本地构建证书完全一致。
+      # 「签名不一致」）。这里把固定 keystore 从 Secret 还原到 $RUNNER_TEMP，并用
+      # MINIS_DEBUG_KEYSTORE_FILE 显式交给 Gradle（见 build.gradle.kts 的 debug
+      # 签名配置覆盖）——不依赖 AGP 对默认路径的解析，runner 上它曾命中别的
+      # 目录并现场生成随机 key。
       # Secret: ANDROID_DEBUG_KEYSTORE_BASE64 = base64 -w0 ~/.android/debug.keystore
       - name: Restore stable Android debug keystore
         env:
@@ -53,10 +54,11 @@ jobs:
             echo "::error::ANDROID_DEBUG_KEYSTORE_BASE64 is not set. Without it the runner generates a throwaway key and the APK cannot be installed over existing builds. Set the repository secret to the base64 of the project's ~/.android/debug.keystore."
             exit 1
           fi
-          mkdir -p "$HOME/.android"
-          printf '%s' "$KEYSTORE_B64" | base64 -d > "$HOME/.android/debug.keystore"
+          KEYSTORE_FILE="$RUNNER_TEMP/minis-debug.keystore"
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$KEYSTORE_FILE"
+          echo "MINIS_DEBUG_KEYSTORE_FILE=$KEYSTORE_FILE" >> "$GITHUB_ENV"
           echo "Restored signing keystore:"
-          keytool -list -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey | grep -m1 "SHA256:"
+          keytool -list -v -keystore "$KEYSTORE_FILE" -storepass android -alias androiddebugkey | grep -m1 "SHA256:"
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -144,6 +146,23 @@ jobs:
           ./gradlew :app:assembleRelease :app:assembleDebug --no-daemon \
             -Pminis.versionName="${{ steps.version_step.outputs.version }}" \
             -Dorg.gradle.jvmargs="-Xmx4096m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8"
+
+      - name: Verify APK signing identity
+        run: |
+          KEYSTORE_FILE="${MINIS_DEBUG_KEYSTORE_FILE:?MINIS_DEBUG_KEYSTORE_FILE must be set by the keystore restore step}"
+          BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          EXPECTED=$(keytool -list -v -keystore "$KEYSTORE_FILE" -storepass android -alias androiddebugkey \
+            | grep -m1 "SHA256:" | awk '{print $2}' | tr -d ':' | tr 'A-Z' 'a-z')
+          for apk in \
+            src/android/app/build/outputs/apk/release/app-release.apk \
+            src/android/app/build/outputs/apk/debug/app-debug.apk; do
+            ACTUAL=$("$BUILD_TOOLS/apksigner" verify --print-certs "$apk" | grep -m1 "certificate SHA-256 digest:" | awk '{print $NF}')
+            if [ "$EXPECTED" != "$ACTUAL" ]; then
+              echo "::error::$apk is signed with $ACTUAL but the project keystore is $EXPECTED — the build ignored MINIS_DEBUG_KEYSTORE_FILE"
+              exit 1
+            fi
+            echo "$(basename "$apk") signed with the project keystore ($ACTUAL)"
+          done
 
       - name: Prepare and rename APK artifacts
         run: |

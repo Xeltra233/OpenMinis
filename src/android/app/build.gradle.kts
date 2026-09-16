@@ -80,6 +80,19 @@ android {
         }
     }
 
+    // [CI 统一签名] 显式指定 debug 签名配置的 keystore（当环境变量提供时）。
+    // AGP 自己解析默认 debug keystore 位置，在 CI runner 上命中了别的目录、
+    // 找不到就现场生成随机 key——所以每次发布的 APK 证书都不同，无法覆盖
+    // 本地构建或上一版。CI 导出 MINIS_DEBUG_KEYSTORE_FILE；本地构建不设该
+    // 变量，仍然使用标准的 ~/.android/debug.keystore，行为不变。
+    signingConfigs {
+        getByName("debug") {
+            System.getenv("MINIS_DEBUG_KEYSTORE_FILE")
+                ?.takeIf { it.isNotBlank() }
+                ?.let { storeFile = file(it) }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
