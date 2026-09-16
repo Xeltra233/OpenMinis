@@ -412,3 +412,24 @@
   3. 全量 `:app:testDebugUnitTest`：1265 tests / 0 failures / 0 errors（141 suites）；`:app:assembleDebug` 成功产出 `app-debug.apk`（64.8 MB）。
   4. iOS 侧仅在源码层镜像（本机无 macOS 工具链，未编译验证）。
 - **影响范围与回滚**：仅涉及流终止信号判定与 ChatViewModel 的单一赋值点；无数据结构、无存储、无网络协议变更。回滚可还原上述 4 个源文件并删除 `TerminalChunkWithoutReasonTest.kt`；回滚后的缺陷行为为「干净结束但终止信号为 null 时误报中断」。
+
+---
+
+## 23. CI 构建修复与签名统一 (CI setup-android Fix & Unified Signing Identity)
+- **问题现象**：
+  1. 推送任意提交到 `main` 后，CI 在 `Setup Android SDK` 步骤 20 秒内失败（run 35098222133，attempts 1/2），根本到不了编译步骤；
+  2. 装机时 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`（签名不一致）：GitHub Release 的 APK 与本机 `dist/`、本地构建的 APK 证书不同；实测 v1.13-1.2 与 v1.13-1.3 的 CI 产物证书也互不相同。
+- **根因分析**：
+  1. `android-actions/setup-android@v3` 默认 `packages: tools platform-tools`，而 Google 已从 SDK 仓库移除遗留的 `tools` 包——`sdkmanager` 报 "Failed to find package 'tools'" 并以退出码 1 终止任务；这是一次全局性的仓库端变更，与业务代码无关；
+  2. 工作流没有配置固定签名：`build.gradle.kts` 的 release/debug 两个 buildType 都使用默认 debug 签名配置，本地构建用本机 `~/.android/debug.keystore`，而 CI runner 每次运行都现场生成一把临时 keystore —— 于是 CI 包➔本地包、CI 包➔上一版 CI 包都无法覆盖安装。
+- **修复方案**：
+  1. `Setup Android SDK` 显式 `packages: platform-tools`（platforms/build-tools/cmake 由下一步安装）；
+  2. 新增 `Restore stable Android debug keystore` 步骤：构建前把 Secret `ANDROID_DEBUG_KEYSTORE_BASE64`（本机 `~/.android/debug.keystore` 的 base64）还原到 runner 的 `~/.android/debug.keystore` 并打印证书指纹入日志；Secret 缺失时直接 `::error::` 失败，避免静默回到随机签名；
+  3. 版本 `1.13-1.4`（versionCode 29），Release 说明同步更新。
+- **验证证据**：
+  1. 修复前：run 35098222133 失败于 `Setup Android SDK`（"Failed to find package 'tools'" / exit code 1）；修复后：run 35098718740 **success**（head 7697a06）；
+  2. 证书实测（`apksigner verify --print-certs`）：本机 keystore = `dist/OpenMinis-1.13-1.0` = `dist/OpenMinis-v1.13-1.1` = 本次本地构建 = `222995e0…bd9bb0`；CI `v1.13-1.3` = `afd606b2…1ebfd3`；CI `v1.13-1.2` = `47e52eac…d67542`；
+  3. 统一签名后打 tag `v1.13-1.4`，Release 产物证书应与 `222995e0…bd9bb0` 一致（见发布后回填）。
+- **影响范围与回滚**：仅影响 CI 构建与产物签名，无业务代码变更。回滚：删除 keystore 还原步骤即可（将回到每跑一变的随机签名，装机会继续报签名不一致）；已安装旧 CI 版本（证书 `afd606b2…` / `47e52eac…` 等）的设备需一次性卸载后安装新包。
+
+> 2026-09-16 回填：v1.13-1.4 Release 产物证书校验结果待 CI 完成后补充。

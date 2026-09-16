@@ -39,6 +39,25 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      # [CI 统一签名] CI 以前用 runner 上临时生成的 debug keystore 签名，每次发布的
+      # APK 证书都不同——既不能覆盖本地构建，也不能覆盖上一版 Release（装机报
+      # 「签名不一致」）。构建前把固定 keystore 还原到 ~/.android/debug.keystore：
+      # Gradle 的 release/debug 两个 buildType 都使用默认 debug 签名配置，
+      # 因此 CI 产物与本地构建证书完全一致。
+      # Secret: ANDROID_DEBUG_KEYSTORE_BASE64 = base64 -w0 ~/.android/debug.keystore
+      - name: Restore stable Android debug keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::ANDROID_DEBUG_KEYSTORE_BASE64 is not set. Without it the runner generates a throwaway key and the APK cannot be installed over existing builds. Set the repository secret to the base64 of the project's ~/.android/debug.keystore."
+            exit 1
+          fi
+          mkdir -p "$HOME/.android"
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$HOME/.android/debug.keystore"
+          echo "Restored signing keystore:"
+          keytool -list -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey | grep -m1 "SHA256:"
+
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
@@ -163,6 +182,9 @@ jobs:
             - **SOUL.md is listed again under Settings → Memory**: the daily-log-only whitelist introduced in v1.13-1.1 hid SOUL.md from the memory list even though the file was untouched on disk. The list now shows GLOBAL.md, SOUL.md and the daily logs — and still never the system-prompt files.
             - **GLOBAL.md / SOUL.md can no longer be lost to a bad save**: memory reads distinguish "empty" from "unreadable", the editor disables Save when the file could not be read, and both files are written atomically (tmp + rename). Neither can be deleted from the memory list.
             - **Version numbers can no longer drift**: the APK's embedded `versionName` is stamped from the release tag at build time (v1.13-1.1 shipped an APK that still reported `1.13-1.0`).
+            - **A completed reply is no longer reported as a dropped connection**: a finished answer could still show the red "连接中断，此回复可能不完整" banner with Resume. Relays that end a Chat Completions stream with `data: [DONE]` but drop the chunk carrying `finish_reason` (and Anthropic-format relays whose usage-only `message_delta` omits `stop_reason`) left the turn's terminal signal `null`, which the agent loop reads as an interruption. The `[DONE]` / `message_stop` sentinels now close the turn with their proper reason (`stop`, `tool_calls`, `tool_use`, `end_turn`), a later `null` can no longer erase a reason already captured, and genuine truncations (no sentinel, no reason) still surface.
+            - **CI builds no longer die before compiling**: `android-actions/setup-android` defaulted to installing the legacy `tools` SDK package, which Google removed from the repository — `sdkmanager` exited 1 within ~20 s of every run (build 35098222133, attempts 1–2). The step now installs only `platform-tools` (build 35098718740 succeeded).
+            - **CI and local builds now share one signing key**: every previous CI release was signed with a throwaway keystore generated on the runner, so a release APK could not be installed over a locally built app (nor over the previous release). The workflow now restores the project's stable keystore before building. **One-time notice**: APKs from v1.13-1.3 and earlier carry different signatures — uninstall the old app before installing this release (installing over a locally built APK works, it already uses this key).
 
             ### Also included:
             - **Max Thinking Depth ULTRA**: reasoning depth up to ULTRA across providers.
