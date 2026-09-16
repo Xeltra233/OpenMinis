@@ -41,6 +41,14 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # The action's default `packages: tools platform-tools` no longer
+          # installs: Google removed the legacy `tools` SDK package from the
+          # repository, so sdkmanager exits 1 ("Failed to find package 'tools'")
+          # and the whole job dies in this step before it ever builds.
+          # platform-tools is the only package this step actually needs —
+          # platforms/build-tools/cmake are installed by the next step.
+          packages: platform-tools
 
       - name: Accept Android SDK Licenses & Install Components
         run: |
